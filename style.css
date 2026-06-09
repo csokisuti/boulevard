@@ -231,6 +231,12 @@ button:hover {
   font-size: 14px;
 }
 
+.active-input {
+  border: 2px solid #111827;
+  background: #ffffff;
+  font-weight: bold;
+}
+
 .note-input {
   width: 180px;
 }
@@ -239,10 +245,33 @@ button:hover {
   width: 100px;
 }
 
-.disabled-input {
+.disabled-input,
+input:disabled {
   background: #f3f4f6;
   color: #9ca3af;
   cursor: not-allowed;
+}
+
+.input-edit-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon-edit-btn {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 0;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 1;
+  background: #4b5563;
+}
+
+.icon-edit-btn:hover {
+  background: #111827;
 }
 
 .small-btn {
@@ -350,6 +379,42 @@ button:hover {
   padding: 12px;
 }
 
+.category-row.category-complete td {
+  background: #047857;
+}
+
+.category-toggle {
+  width: auto;
+  margin: 0 10px 0 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+  font-size: 13px;
+}
+
+.category-toggle:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.category-title {
+  display: inline-block;
+  margin-right: 18px;
+  font-size: 16px;
+}
+
+.category-total {
+  display: inline-block;
+  margin-right: 18px;
+  font-weight: bold;
+}
+
+.category-status {
+  display: inline-block;
+  opacity: 0.9;
+  font-size: 13px;
+}
+
 @media (max-width: 700px) {
   .topbar {
     align-items: flex-start;
@@ -377,5 +442,12 @@ button:hover {
 
   .category-tools button {
     width: 100%;
+  }
+
+  .category-title,
+  .category-total,
+  .category-status {
+    display: block;
+    margin: 6px 0;
   }
 }
