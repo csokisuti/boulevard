@@ -35,9 +35,10 @@
           <thead>
             <tr>
               <th>Dátum</th>
-              <th>Név</th>
+              <th>Stand</th>
               <th>Lezárta</th>
               <th>Eladási érték</th>
+              <th>Utólag módosítva</th>
               <th>Művelet</th>
             </tr>
           </thead>
@@ -80,18 +81,25 @@
       return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
     }
 
-    function formatDate(value) {
+    function formatDateTime(value) {
       if (!value) return "-";
       const date = value.toDate ? value.toDate() : new Date(value);
       return date.toLocaleString("hu-HU");
     }
 
+    function formatBusinessDate(value) {
+      if (!value) return "-";
+      const parts = String(value).split("-");
+      if (parts.length !== 3) return value;
+      return `${parts[0]}.${parts[1]}.${parts[2]}.`;
+    }
+
     async function loadClosedShifts() {
       closedShiftsMessage.textContent = "Betöltés...";
-      closedShiftsBody.innerHTML = `<tr><td colspan="5">Betöltés...</td></tr>`;
+      closedShiftsBody.innerHTML = `<tr><td colspan="6">Betöltés...</td></tr>`;
 
       try {
-        const shiftsQuery = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(30));
+        const shiftsQuery = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(40));
         const snap = await getDocs(shiftsQuery);
         const shifts = [];
 
@@ -110,7 +118,7 @@
 
         if (!shifts.length) {
           closedShiftsMessage.textContent = "Még nincs lezárt stand.";
-          closedShiftsBody.innerHTML = `<tr><td colspan="5">Nincs lezárt stand.</td></tr>`;
+          closedShiftsBody.innerHTML = `<tr><td colspan="6">Nincs lezárt stand.</td></tr>`;
           return;
         }
 
@@ -118,14 +126,16 @@
 
         shifts.forEach(shift => {
           const tr = document.createElement("tr");
-          const shiftName = shift.shiftLabel || "Lezárt műszak";
-          const closedByName = shift.closedByName || "-";
+          const dateText = shift.businessDate ? formatBusinessDate(shift.businessDate) : formatDateTime(shift.closedAt);
+          const standOwner = shift.assignedUserName || shift.closedByName || shift.openedByName || "-";
+          const modifiedText = shift.modifiedAfterClose ? `Igen, ${shift.lastModifiedAfterCloseByName || "-"}` : "Nem";
 
           tr.innerHTML = `
-            <td>${formatDate(shift.closedAt)}</td>
-            <td>${shiftName}</td>
-            <td>${closedByName}</td>
+            <td>${dateText}</td>
+            <td>${standOwner}</td>
+            <td>${shift.closedByName || "-"}</td>
             <td>${formatMoney(shift.totalSalesValue)}</td>
+            <td>${modifiedText}</td>
             <td>
               <a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}">Megnyitás</a>
             </td>
@@ -136,7 +146,7 @@
       } catch (error) {
         console.error(error);
         closedShiftsMessage.textContent = "Nem sikerült betölteni a lezárt standokat.";
-        closedShiftsBody.innerHTML = `<tr><td colspan="5">Hiba történt betöltés közben.</td></tr>`;
+        closedShiftsBody.innerHTML = `<tr><td colspan="6">Hiba történt betöltés közben.</td></tr>`;
       }
     }
 
@@ -165,7 +175,7 @@
 
       userInfo.textContent = `${userData.name} - ${userData.role === "admin" ? "Admin" : "Dolgozó"}`;
 
-      addMenuItem("Standolás", "Aktuális műszak kezelése", "stand.html");
+      addMenuItem("Standolás", "Aktuális stand vagy új stand nyitása", "stand.html");
       addMenuItem("Terméklista", "Termékek és árak kezelése", "products.html");
 
       if (userData.role === "admin") {
