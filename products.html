@@ -101,12 +101,13 @@
       </div>
 
       <div class="table-wrapper">
-        <table class="data-table">
+        <table class="data-table products-table">
           <thead>
             <tr>
               <th>Termék</th>
               <th>Kategória</th>
               <th>Egység</th>
+              <th>Készlet</th>
               <th>Eladási ár</th>
               <th class="admin-only">Beszerzési ár</th>
               <th>Állapot</th>
@@ -128,12 +129,13 @@
       </div>
 
       <div class="table-wrapper">
-        <table class="data-table">
+        <table class="data-table products-table">
           <thead>
             <tr>
               <th>Termék</th>
               <th>Kategória</th>
               <th>Egység</th>
+              <th>Készlet</th>
               <th>Eladási ár</th>
               <th class="admin-only">Beszerzési ár</th>
               <th>Állapot</th>
@@ -152,7 +154,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
@@ -184,6 +186,8 @@
     let currentUserData = null;
     let allProducts = [];
     let categories = [];
+    let stockMap = new Map();
+    let stockSourceText = "";
     let editingProductId = "";
 
     backBtn.addEventListener("click", () => {
@@ -195,8 +199,18 @@
       return Number.isFinite(n) ? n : 0;
     }
 
+    function hasValue(value) {
+      return value !== "" && value !== null && value !== undefined;
+    }
+
     function formatMoney(value) {
       return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function formatNumber(value) {
+      const n = Number(value || 0);
+      if (Number.isInteger(n)) return String(n);
+      return String(Number(n.toFixed(3))).replace(".", ",");
     }
 
     function escapeHtml(value) {
@@ -470,6 +484,88 @@
       return ((current.sortOrder || 0) + (next.sortOrder || 0)) / 2;
     }
 
+    async function getLatestStockShift() {
+      const openQuery = query(collection(db, "shifts"), where("status", "==", "open"), limit(1));
+      const openSnap = await getDocs(openQuery);
+
+      if (!openSnap.empty) {
+        const item = openSnap.docs[0];
+        return {
+          id: item.id,
+          type: "open",
+          ...item.data()
+        };
+      }
+
+      const closedQuery = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(10));
+      const closedSnap = await getDocs(closedQuery);
+
+      for (const item of closedSnap.docs) {
+        const data = item.data();
+
+        if (data.status === "closed") {
+          return {
+            id: item.id,
+            type: "closed",
+            ...data
+          };
+        }
+      }
+
+      return null;
+    }
+
+    function stockFromItem(data, shiftType) {
+      if (shiftType === "open") {
+        if (hasValue(data.currentStock)) return toNumber(data.currentStock);
+        if (hasValue(data.remaining)) return toNumber(data.remaining);
+        if (hasValue(data.total)) return toNumber(data.total);
+        if (hasValue(data.openingFinal)) return toNumber(data.openingFinal);
+        return 0;
+      }
+
+      if (hasValue(data.remaining)) return toNumber(data.remaining);
+      if (hasValue(data.currentStock)) return toNumber(data.currentStock);
+      return 0;
+    }
+
+    async function loadStock() {
+      stockMap = new Map();
+      stockSourceText = "Készlet: nincs még lezárt vagy nyitott stand.";
+
+      const shift = await getLatestStockShift();
+
+      if (!shift) return;
+
+      const snap = await getDocs(collection(db, "shifts", shift.id, "items"));
+
+      snap.forEach(item => {
+        const data = item.data();
+        const productId = data.productId || item.id;
+
+        stockMap.set(productId, {
+          value: stockFromItem(data, shift.type),
+          shiftId: shift.id,
+          shiftType: shift.type,
+          shiftLabel: shift.shiftLabel || ""
+        });
+      });
+
+      stockSourceText = shift.type === "open"
+        ? `Készlet: aktuális nyitott stand alapján (${shift.shiftLabel || "nyitott stand"})`
+        : `Készlet: utolsó lezárt stand alapján (${shift.shiftLabel || "lezárt stand"})`;
+    }
+
+    function formatStock(product) {
+      const stock = stockMap.get(product.id);
+
+      if (!stock) {
+        return "-";
+      }
+
+      return `${formatNumber(stock.value)} ${product.unit || ""}`;
+    }
+
     async function loadProducts() {
       const snap = await getDocs(collection(db, "products"));
 
@@ -481,6 +577,7 @@
         });
       });
 
+      await loadStock();
       rebuildInsertOptions();
       renderProducts();
       renderCategoryList();
@@ -495,7 +592,7 @@
       body.innerHTML = "";
 
       if (!list.length) {
-        body.innerHTML = `<tr><td colspan="8">${emptyText}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="9">${emptyText}</td></tr>`;
         return;
       }
 
@@ -507,7 +604,7 @@
         if (currentCategory !== lastCategory) {
           const categoryTr = document.createElement("tr");
           categoryTr.className = "product-category-row";
-          categoryTr.innerHTML = `<td colspan="8">${escapeHtml(currentCategory)}</td>`;
+          categoryTr.innerHTML = `<td colspan="9">${escapeHtml(currentCategory)}</td>`;
           body.appendChild(categoryTr);
           lastCategory = currentCategory;
         }
@@ -530,6 +627,7 @@
           <td>${escapeHtml(product.name || "")}</td>
           <td>${escapeHtml(product.category || "Egyéb")}</td>
           <td>${escapeHtml(product.unit || "")}</td>
+          <td><span class="stock-badge">${escapeHtml(formatStock(product))}</span></td>
           <td>${formatMoney(product.salePrice)}</td>
           <td class="admin-only">${formatMoney(product.purchasePrice)}</td>
           <td>${activeText}</td>
@@ -554,8 +652,8 @@
       const activeProducts = sorted.filter(product => product.active !== false);
       const passiveProducts = sorted.filter(product => product.active === false);
 
-      activeProductsInfo.textContent = `${activeProducts.length} aktív termék`;
-      passiveProductsInfo.textContent = `${passiveProducts.length} passzív termék`;
+      activeProductsInfo.textContent = `${activeProducts.length} aktív termék. ${stockSourceText}`;
+      passiveProductsInfo.textContent = `${passiveProducts.length} passzív termék. ${stockSourceText}`;
 
       renderGroupedProducts(activeProducts, activeProductsBody, "Nincs aktív termék.");
       renderGroupedProducts(passiveProducts, passiveProductsBody, "Nincs passzív termék.");
