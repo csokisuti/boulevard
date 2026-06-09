@@ -38,6 +38,7 @@
               <th>Stand</th>
               <th>Lezárta</th>
               <th>Eladási érték</th>
+              <th>Várható pénztár</th>
               <th>Utólag módosítva</th>
               <th>Művelet</th>
             </tr>
@@ -96,7 +97,7 @@
 
     async function loadClosedShifts() {
       closedShiftsMessage.textContent = "Betöltés...";
-      closedShiftsBody.innerHTML = `<tr><td colspan="6">Betöltés...</td></tr>`;
+      closedShiftsBody.innerHTML = `<tr><td colspan="7">Betöltés...</td></tr>`;
 
       try {
         const shiftsQuery = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(40));
@@ -118,7 +119,7 @@
 
         if (!shifts.length) {
           closedShiftsMessage.textContent = "Még nincs lezárt stand.";
-          closedShiftsBody.innerHTML = `<tr><td colspan="6">Nincs lezárt stand.</td></tr>`;
+          closedShiftsBody.innerHTML = `<tr><td colspan="7">Nincs lezárt stand.</td></tr>`;
           return;
         }
 
@@ -135,6 +136,7 @@
             <td>${standOwner}</td>
             <td>${shift.closedByName || "-"}</td>
             <td>${formatMoney(shift.totalSalesValue)}</td>
+            <td>${formatMoney(shift.totalCashExpected || shift.totalSalesValue)}</td>
             <td>${modifiedText}</td>
             <td>
               <a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}">Megnyitás</a>
@@ -146,7 +148,7 @@
       } catch (error) {
         console.error(error);
         closedShiftsMessage.textContent = "Nem sikerült betölteni a lezárt standokat.";
-        closedShiftsBody.innerHTML = `<tr><td colspan="6">Hiba történt betöltés közben.</td></tr>`;
+        closedShiftsBody.innerHTML = `<tr><td colspan="7">Hiba történt betöltés közben.</td></tr>`;
       }
     }
 
@@ -176,7 +178,8 @@
       userInfo.textContent = `${userData.name} - ${userData.role === "admin" ? "Admin" : "Dolgozó"}`;
 
       addMenuItem("Standolás", "Aktuális stand vagy új stand nyitása", "stand.html");
-      addMenuItem("Terméklista", "Termékek és árak kezelése", "products.html");
+      addMenuItem("Tartozások", "Nyitott tartozások, befizetések", "debts.html");
+      addMenuItem("Terméklista", "Termékek, árak és készlet", "products.html");
 
       if (userData.role === "admin") {
         addMenuItem("Admin ellenőrzések", "Módosítások, eltérések, naplók", "admin.html");
