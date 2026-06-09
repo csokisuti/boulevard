@@ -120,7 +120,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
@@ -213,18 +213,20 @@
     async function loadPaymentHistory() {
       paymentHistoryByDebtId = new Map();
 
-      try {
-        const paymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_payment"));
-        const snap = await getDocs(paymentsQuery);
+      const shiftsSnap = await getDocs(collection(db, "shifts"));
 
-        snap.forEach(item => {
+      for (const shiftDoc of shiftsSnap.docs) {
+        const shiftData = shiftDoc.data();
+        const movementsSnap = await getDocs(collection(db, "shifts", shiftDoc.id, "moneyMovements"));
+
+        movementsSnap.forEach(item => {
           const data = item.data();
+
+          if (data.type !== "debt_payment") return;
+
           const debtId = data.debtId || "";
 
           if (!debtId) return;
-
-          const parentShiftRef = item.ref.parent.parent;
-          const shiftId = parentShiftRef ? parentShiftRef.id : "";
 
           if (!paymentHistoryByDebtId.has(debtId)) {
             paymentHistoryByDebtId.set(debtId, []);
@@ -232,7 +234,8 @@
 
           paymentHistoryByDebtId.get(debtId).push({
             id: item.id,
-            shiftId,
+            shiftId: shiftDoc.id,
+            shiftLabel: data.shiftLabel || shiftData.shiftLabel || "",
             amount: toNumber(data.amount),
             personName: data.personName || "",
             note: data.note || "",
@@ -240,24 +243,30 @@
             createdByName: data.createdByName || ""
           });
         });
-
-        paymentHistoryByDebtId.forEach(payments => {
-          payments.sort((a, b) => {
-            const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
-            const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
-            return aTime - bTime;
-          });
-        });
-      } catch (error) {
-        console.error(error);
-        showMessage("A befizetési napló betöltése nem sikerült. Ha ez jogosultsági hiba, a Firestore Rules-t kell bővíteni.", true);
       }
+
+      paymentHistoryByDebtId.forEach(payments => {
+        payments.sort((a, b) => {
+          const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+          const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+          return aTime - bTime;
+        });
+      });
     }
 
-    function paymentHistoryHtml(debtId) {
-      const payments = paymentHistoryByDebtId.get(debtId) || [];
+    function paymentHistoryHtml(debt) {
+      const payments = paymentHistoryByDebtId.get(debt.id) || [];
 
       if (!payments.length) {
+        if (toNumber(debt.paidAmount) > 0) {
+          return `
+            <div>
+              <strong>Korábbi befizetés összesen: ${formatMoney(debt.paidAmount)}</strong>
+              <div class="muted-cell" style="margin-top:6px;">Részletes napló nincs ehhez a régebbi befizetéshez.</div>
+            </div>
+          `;
+        }
+
         return `<span class="muted-cell">Nincs befizetés.</span>`;
       }
 
@@ -270,6 +279,7 @@
             <div style="margin-top:6px; padding-top:6px; border-top:1px solid #e5e7eb;">
               <div><strong>${formatDateTime(payment.createdAt)}</strong></div>
               <div>Összeg: ${formatMoney(payment.amount)}</div>
+              <div>Stand: ${escapeHtml(payment.shiftLabel || "-")}</div>
               <div>Rögzítette: ${escapeHtml(payment.createdByName || "-")}</div>
               <div>Megjegyzés: ${escapeHtml(payment.note || "-")}</div>
             </div>
@@ -334,7 +344,7 @@
             <td><strong>${formatMoney(debt.remainingAmount)}</strong></td>
             <td>${escapeHtml(debt.createdShiftLabel || "")}</td>
             <td>${escapeHtml(debt.note || "")}</td>
-            <td>${paymentHistoryHtml(debt.id)}</td>
+            <td>${paymentHistoryHtml(debt)}</td>
             <td>
               <input class="table-input debt-payment-input" data-id="${debt.id}" type="number" min="0" value="${toNumber(debt.remainingAmount)}" ${canPay ? "" : "disabled"}>
             </td>
@@ -362,7 +372,7 @@
             <td>${escapeHtml(debt.createdShiftLabel || "")}</td>
             <td>${escapeHtml(debt.lastPaymentShiftLabel || "")}</td>
             <td>${escapeHtml(debt.note || "")}</td>
-            <td>${paymentHistoryHtml(debt.id)}</td>
+            <td>${paymentHistoryHtml(debt)}</td>
           `;
 
           paidDebtsBody.appendChild(tr);
