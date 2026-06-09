@@ -76,6 +76,7 @@
               <th>Hátralék</th>
               <th>Keletkezett</th>
               <th>Megjegyzés</th>
+              <th>Befizetési napló</th>
               <th>Befizetés</th>
               <th>Művelet</th>
             </tr>
@@ -105,6 +106,7 @@
               <th>Keletkezett</th>
               <th>Utolsó befizetés</th>
               <th>Megjegyzés</th>
+              <th>Befizetési napló</th>
             </tr>
           </thead>
           <tbody id="paidDebtsBody"></tbody>
@@ -118,7 +120,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
@@ -140,6 +142,7 @@
     let currentUserData = null;
     let currentShift = null;
     let debts = [];
+    let paymentHistoryByDebtId = new Map();
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
@@ -207,6 +210,74 @@
       };
     }
 
+    async function loadPaymentHistory() {
+      paymentHistoryByDebtId = new Map();
+
+      try {
+        const paymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_payment"));
+        const snap = await getDocs(paymentsQuery);
+
+        snap.forEach(item => {
+          const data = item.data();
+          const debtId = data.debtId || "";
+
+          if (!debtId) return;
+
+          const parentShiftRef = item.ref.parent.parent;
+          const shiftId = parentShiftRef ? parentShiftRef.id : "";
+
+          if (!paymentHistoryByDebtId.has(debtId)) {
+            paymentHistoryByDebtId.set(debtId, []);
+          }
+
+          paymentHistoryByDebtId.get(debtId).push({
+            id: item.id,
+            shiftId,
+            amount: toNumber(data.amount),
+            personName: data.personName || "",
+            note: data.note || "",
+            createdAt: data.createdAt || null,
+            createdByName: data.createdByName || ""
+          });
+        });
+
+        paymentHistoryByDebtId.forEach(payments => {
+          payments.sort((a, b) => {
+            const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+            const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+            return aTime - bTime;
+          });
+        });
+      } catch (error) {
+        console.error(error);
+        showMessage("A befizetési napló betöltése nem sikerült. Ha ez jogosultsági hiba, a Firestore Rules-t kell bővíteni.", true);
+      }
+    }
+
+    function paymentHistoryHtml(debtId) {
+      const payments = paymentHistoryByDebtId.get(debtId) || [];
+
+      if (!payments.length) {
+        return `<span class="muted-cell">Nincs befizetés.</span>`;
+      }
+
+      const total = payments.reduce((sum, payment) => sum + toNumber(payment.amount), 0);
+
+      return `
+        <div>
+          <strong>${payments.length} befizetés, összesen: ${formatMoney(total)}</strong>
+          ${payments.map(payment => `
+            <div style="margin-top:6px; padding-top:6px; border-top:1px solid #e5e7eb;">
+              <div><strong>${formatDateTime(payment.createdAt)}</strong></div>
+              <div>Összeg: ${formatMoney(payment.amount)}</div>
+              <div>Rögzítette: ${escapeHtml(payment.createdByName || "-")}</div>
+              <div>Megjegyzés: ${escapeHtml(payment.note || "-")}</div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
     async function loadDebts() {
       const snap = await getDocs(collection(db, "debts"));
 
@@ -249,7 +320,7 @@
       paidDebtsBody.innerHTML = "";
 
       if (!openDebts.length) {
-        openDebtsBody.innerHTML = `<tr><td colspan="9">Nincs nyitott tartozás.</td></tr>`;
+        openDebtsBody.innerHTML = `<tr><td colspan="10">Nincs nyitott tartozás.</td></tr>`;
       } else {
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
@@ -263,6 +334,7 @@
             <td><strong>${formatMoney(debt.remainingAmount)}</strong></td>
             <td>${escapeHtml(debt.createdShiftLabel || "")}</td>
             <td>${escapeHtml(debt.note || "")}</td>
+            <td>${paymentHistoryHtml(debt.id)}</td>
             <td>
               <input class="table-input debt-payment-input" data-id="${debt.id}" type="number" min="0" value="${toNumber(debt.remainingAmount)}" ${canPay ? "" : "disabled"}>
             </td>
@@ -276,7 +348,7 @@
       }
 
       if (!paidDebts.length) {
-        paidDebtsBody.innerHTML = `<tr><td colspan="8">Nincs lezárt tartozás.</td></tr>`;
+        paidDebtsBody.innerHTML = `<tr><td colspan="9">Nincs lezárt tartozás.</td></tr>`;
       } else {
         paidDebts.forEach(debt => {
           const tr = document.createElement("tr");
@@ -290,6 +362,7 @@
             <td>${escapeHtml(debt.createdShiftLabel || "")}</td>
             <td>${escapeHtml(debt.lastPaymentShiftLabel || "")}</td>
             <td>${escapeHtml(debt.note || "")}</td>
+            <td>${paymentHistoryHtml(debt.id)}</td>
           `;
 
           paidDebtsBody.appendChild(tr);
@@ -378,6 +451,8 @@
         personName: name,
         note,
         debtId: debtRef.id,
+        shiftId: currentShift.id,
+        shiftLabel: currentShift.shiftLabel || "",
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
         createdByName: currentUserData.name
@@ -409,6 +484,7 @@
       newDebtNote.value = "";
 
       showMessage("Tartozás felírva és levonva az aktuális pénztárból.");
+      await loadPaymentHistory();
       await loadDebts();
     }
 
@@ -465,6 +541,8 @@
         personName: debt.name || "",
         note: "Tartozás befizetés",
         debtId,
+        shiftId: currentShift.id,
+        shiftLabel: currentShift.shiftLabel || "",
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
         createdByName: currentUserData.name
@@ -494,6 +572,7 @@
       await updateShiftMoneyTotals();
 
       showMessage("Befizetés rögzítve és hozzáadva az aktuális pénztárhoz.");
+      await loadPaymentHistory();
       await loadDebts();
     }
 
@@ -549,6 +628,7 @@
         newDebtFormBox.style.display = "none";
       }
 
+      await loadPaymentHistory();
       await loadDebts();
     });
   </script>
