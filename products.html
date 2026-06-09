@@ -155,6 +155,7 @@
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import { collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { hasPermission, roleLabel } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
@@ -224,6 +225,10 @@
 
     function isAdmin() {
       return currentUserData && currentUserData.role === "admin";
+    }
+
+    function can(permission) {
+      return hasPermission(currentUserData, permission);
     }
 
     function categoryName(product) {
@@ -344,6 +349,10 @@
     }
 
     async function addCategory() {
+      if (!can("canManageCategories")) {
+        showMessage("Nincs jogosultságod kategória hozzáadásához.", true);
+        return;
+      }
       const name = newCategoryName.value.trim();
 
       if (!name) {
@@ -379,6 +388,10 @@
     }
 
     async function deleteCategory(categoryId) {
+      if (!can("canManageCategories")) {
+        showMessage("Nincs jogosultságod kategória törléséhez.", true);
+        return;
+      }
       const category = categories.find(item => item.id === categoryId);
 
       if (!category) {
@@ -636,14 +649,14 @@
           <td>${escapeHtml(product.unit || "")}</td>
           <td><span class="stock-badge">${escapeHtml(formatStock(product))}</span></td>
           <td>${formatMoney(product.salePrice)}</td>
-          <td class="admin-only">${formatMoney(product.purchasePrice)}</td>
+          <td class="admin-only">${can("canViewPurchasePrice") ? formatMoney(product.purchasePrice) : "—"}</td>
           <td>${activeText}</td>
           <td>${product.adminReviewNeeded ? "Ellenőrizendő" : "Rendben"}</td>
           <td class="action-cell">
-            <button class="small-btn" data-action="edit" data-id="${product.id}">Szerkesztés</button>
-            <button class="small-btn" data-action="${toggleAction}" data-id="${product.id}">${toggleText}</button>
-            ${isAdmin() && product.adminReviewNeeded ? `<button class="small-btn" data-action="reviewed" data-id="${product.id}">Ellenőrizve</button>` : ""}
-            <button class="danger-small-btn" data-action="delete" data-id="${product.id}">Törlés</button>
+            ${can("canEditProducts") ? `<button class="small-btn" data-action="edit" data-id="${product.id}">Szerkesztés</button>` : ""}
+            ${can("canChangeProductStatus") ? `<button class="small-btn" data-action="${toggleAction}" data-id="${product.id}">${toggleText}</button>` : ""}
+            ${can("canReviewProducts") && product.adminReviewNeeded ? `<button class="small-btn" data-action="reviewed" data-id="${product.id}">Ellenőrizve</button>` : ""}
+            ${can("canDeleteProducts") ? `<button class="danger-small-btn" data-action="delete" data-id="${product.id}">Törlés</button>` : ""}
           </td>
         `;
 
@@ -666,7 +679,7 @@
       renderGroupedProducts(passiveProducts, passiveProductsBody, "Nincs passzív termék.");
 
       document.querySelectorAll(".admin-only").forEach(el => {
-        el.style.display = isAdmin() ? "" : "none";
+        el.style.display = can("canViewPurchasePrice") ? "" : "none";
       });
     }
 
@@ -687,6 +700,15 @@
     }
 
     async function saveProduct() {
+      if (editingProductId && !can("canEditProducts")) {
+        showMessage("Nincs jogosultságod termék módosításához.", true);
+        return;
+      }
+
+      if (!editingProductId && !can("canCreateProducts")) {
+        showMessage("Nincs jogosultságod új termék létrehozásához.", true);
+        return;
+      }
       const name = nameInput.value.trim();
       const category = categoryInput.value.trim();
       const unit = unitInput.value || "db";
@@ -714,13 +736,13 @@
         salePrice,
         sortOrder,
         active: selectedActive,
-        adminReviewNeeded: isAdmin() ? false : true,
+        adminReviewNeeded: can("canReviewProducts") ? false : true,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
       };
 
-      if (isAdmin()) {
+      if (can("canEditPurchasePrice")) {
         publicData.purchasePrice = purchasePrice;
       }
 
@@ -736,7 +758,7 @@
             category,
             unit,
             salePrice,
-            purchasePrice: isAdmin() ? purchasePrice : oldProduct?.purchasePrice || 0,
+            purchasePrice: can("canEditPurchasePrice") ? purchasePrice : oldProduct?.purchasePrice || 0,
             sortOrder,
             active: selectedActive
           }
@@ -747,7 +769,7 @@
         const ref = doc(collection(db, "products"));
         const createData = {
           ...publicData,
-          purchasePrice: isAdmin() ? purchasePrice : 0,
+          purchasePrice: can("canEditPurchasePrice") ? purchasePrice : 0,
           createdAt: serverTimestamp(),
           createdBy: currentUser.uid,
           createdByName: currentUserData.name
@@ -778,6 +800,10 @@
     }
 
     async function toggleProductActive(productId, active) {
+      if (!can("canChangeProductStatus")) {
+        showMessage("Nincs jogosultságod termék aktív/passzív állításához.", true);
+        return;
+      }
       const product = allProducts.find(p => p.id === productId);
 
       if (!product) {
@@ -791,7 +817,7 @@
 
       await updateDoc(doc(db, "products", productId), {
         active,
-        adminReviewNeeded: isAdmin() ? false : true,
+        adminReviewNeeded: can("canReviewProducts") ? false : true,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
@@ -810,6 +836,10 @@
     }
 
     async function deleteProduct(productId) {
+      if (!can("canDeleteProducts")) {
+        showMessage("Nincs jogosultságod termék törléséhez.", true);
+        return;
+      }
       const product = allProducts.find(p => p.id === productId);
 
       if (!product) {
@@ -838,6 +868,10 @@
     }
 
     async function markReviewed(productId) {
+      if (!can("canReviewProducts")) {
+        showMessage("Nincs jogosultságod termék ellenőrzéséhez.", true);
+        return;
+      }
       const product = allProducts.find(p => p.id === productId);
 
       await updateDoc(doc(db, "products", productId), {
@@ -868,6 +902,11 @@
       if (!action) return;
 
       if (action === "edit") {
+        if (!can("canEditProducts")) {
+          showMessage("Nincs jogosultságod termék szerkesztéséhez.", true);
+          return;
+        }
+
         const product = allProducts.find(p => p.id === id);
 
         if (product) {
@@ -923,10 +962,18 @@
         return;
       }
 
-      userInfo.textContent = `${currentUserData.name} - ${currentUserData.role === "admin" ? "Admin" : "Dolgozó"}`;
+      if (!can("canViewProducts")) {
+        userInfo.textContent = "Nincs jogosultság a terméklistához.";
+        document.querySelector("main").innerHTML = `<section class="panel"><h2>Nincs jogosultság</h2><p>Ehhez az oldalhoz nincs jogosultságod.</p></section>`;
+        return;
+      }
 
-      purchasePriceBox.style.display = isAdmin() ? "" : "none";
-      activeBox.style.display = "";
+      userInfo.textContent = `${currentUserData.name} - ${roleLabel(currentUserData.role)}`;
+
+      purchasePriceBox.style.display = can("canEditPurchasePrice") ? "" : "none";
+      activeBox.style.display = can("canChangeProductStatus") ? "" : "none";
+      productFormDetails.style.display = can("canCreateProducts") || can("canEditProducts") ? "" : "none";
+      categoryDetails.style.display = can("canManageCategories") ? "" : "none";
 
       await loadCategories();
       await loadProducts();

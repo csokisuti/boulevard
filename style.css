@@ -713,3 +713,53 @@ button:disabled {
     margin-right: 16px;
   }
 }
+
+.users-table {
+  min-width: 1200px;
+}
+
+.wide-input {
+  width: 180px;
+}
+
+.permission-details summary {
+  cursor: pointer;
+  font-weight: bold;
+  color: #111827;
+}
+
+.permissions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  min-width: 720px;
+}
+
+.permission-group {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f9fafb;
+}
+
+.permission-group strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.permission-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-weight: normal;
+}
+
+.permission-check input {
+  width: auto;
+}
+
+.permission-check span {
+  font-size: 14px;
+}

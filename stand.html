@@ -398,6 +398,7 @@
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { hasPermission, roleLabel } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
     const shiftInfo = document.getElementById("shiftInfo");
@@ -535,6 +536,10 @@
 
     function isAdmin() {
       return currentUserData && currentUserData.role === "admin";
+    }
+
+    function can(permission) {
+      return hasPermission(currentUserData, permission);
     }
 
     function showMessage(text, error = false) {
@@ -929,6 +934,10 @@
     }
 
     async function openNewShift() {
+      if (!can("canOpenShift")) {
+        showMessage("Nincs jogosultságod új stand nyitásához.", true);
+        return;
+      }
       const selectedDate = shiftDate.value;
       const assignedUserId = assignedUserSelect.value;
       const assignedUser = users.find(user => user.id === assignedUserId);
@@ -1387,6 +1396,10 @@
       renderAllMoneyMovements();
 
       financeFormBox.style.display = isOpenShift() ? "" : "none";
+      addMoneyMovementBtn.style.display = can("canManageMoneyMovements") || can("canCreateDebt") || can("canPayDebt") ? "" : "none";
+      addCardPaymentBtn.style.display = can("canAddCardPayment") ? "" : "none";
+      addLottoTurnoverBtn.style.display = can("canAddLottoTurnover") ? "" : "none";
+      addRepiBtn.style.display = can("canAddRepi") ? "" : "none";
     }
 
     function updateCategorySummaries() {
@@ -1618,6 +1631,15 @@
     }
 
     async function saveDraft() {
+      if (isClosedShift() && !can("canModifyClosedShift")) {
+        showMessage("Nincs jogosultságod lezárt stand módosításához.", true);
+        return;
+      }
+
+      if (isOpenShift() && !can("canSaveShift")) {
+        showMessage("Nincs jogosultságod a stand mentéséhez.", true);
+        return;
+      }
       const closed = isClosedShift();
       const error = validateRows(closed);
 
@@ -1695,6 +1717,10 @@
     }
 
     async function closeShift() {
+      if (!can("canCloseShift")) {
+        showMessage("Nincs jogosultságod stand lezárásához.", true);
+        return;
+      }
       if (isClosedShift()) {
         showMessage("Ez a stand már lezárt. A módosítás mentéséhez használd a mentés gombot.", true);
         return;
@@ -1860,6 +1886,10 @@
     }
 
     async function addCardPayment() {
+      if (!can("canAddCardPayment")) {
+        showMessage("Nincs jogosultságod bankkártyás összeg rögzítéséhez.", true);
+        return;
+      }
       const amount = toNumber(cardAmount.value);
       const date = cardDate.value || currentShift?.businessDate || getTodayInputDate();
 
@@ -1878,6 +1908,10 @@
     }
 
     async function addLottoTurnover() {
+      if (!can("canAddLottoTurnover")) {
+        showMessage("Nincs jogosultságod lottó forgalom rögzítéséhez.", true);
+        return;
+      }
       const amount = toNumber(lottoAmount.value);
       const date = lottoDate.value || currentShift?.businessDate || getTodayInputDate();
       const note = lottoNote.value.trim();
@@ -1898,6 +1932,10 @@
     }
 
     async function addRepi() {
+      if (!can("canAddRepi")) {
+        showMessage("Nincs jogosultságod repi rögzítéséhez.", true);
+        return;
+      }
       const person = repiPerson.value.trim();
       const amount = toNumber(repiAmount.value);
       const note = repiNote.value.trim();
@@ -1918,6 +1956,22 @@
     }
 
     async function addMoneyMovement() {
+      const selectedType = moneyType.value;
+
+      if ((selectedType === "income" || selectedType === "expense") && !can("canManageMoneyMovements")) {
+        showMessage("Nincs jogosultságod egyéb pénzmozgás rögzítéséhez.", true);
+        return;
+      }
+
+      if (selectedType === "debt_create" && !can("canCreateDebt")) {
+        showMessage("Nincs jogosultságod új tartozás felírásához.", true);
+        return;
+      }
+
+      if (selectedType === "debt_payment" && !can("canPayDebt")) {
+        showMessage("Nincs jogosultságod tartozás befizetés rögzítéséhez.", true);
+        return;
+      }
       if (!isOpenShift()) {
         showMessage("Pénzmozgást csak nyitott standhoz lehet rögzíteni.", true);
         return;
@@ -2067,6 +2121,10 @@
     }
 
     async function quickAddProduct() {
+      if (!can("canCreateProductFromStand")) {
+        showMessage("Nincs jogosultságod új termék standból történő felviteléhez.", true);
+        return;
+      }
       if (!isOpenShift()) {
         showMessage("Új terméket csak nyitott standhoz lehet így hozzáadni.", true);
         return;
@@ -2077,7 +2135,7 @@
       const category = newCategory || quickCategory.value.trim();
       const unit = quickUnit.value || "db";
       const salePrice = toNumber(quickSalePrice.value);
-      const purchasePrice = isAdmin() ? toNumber(quickPurchasePrice.value) : 0;
+      const purchasePrice = can("canEditPurchasePrice") ? toNumber(quickPurchasePrice.value) : 0;
 
       if (!name) {
         showMessage("A terméknév kötelező.", true);
@@ -2100,7 +2158,7 @@
         purchasePrice,
         active: true,
         sortOrder: Date.now(),
-        adminReviewNeeded: !isAdmin(),
+        adminReviewNeeded: !can("canReviewProducts"),
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
         createdByName: currentUserData.name,
@@ -2143,7 +2201,7 @@
           category,
           unit,
           salePrice,
-          purchasePrice: isAdmin() ? purchasePrice : null
+          purchasePrice: can("canViewPurchasePrice") ? purchasePrice : null
         },
         userId: currentUser.uid,
         userName: currentUserData.name,
@@ -2178,6 +2236,10 @@
     }
 
     async function applyProductUpdatesToOpenShift() {
+      if (!can("canApplyProductUpdatesToShift")) {
+        showMessage("Nincs jogosultságod terméklista-frissítés alkalmazásához.", true);
+        return;
+      }
       if (!isOpenShift()) {
         showMessage("Csak nyitott standra alkalmazható terméklista-frissítés.", true);
         return;
@@ -2293,6 +2355,21 @@
       if (!row) return;
       if (!row.unlockedFields) row.unlockedFields = {};
 
+      if (field === "openingFinal" && !can("canEditOpeningStock")) {
+        showMessage("Nincs jogosultságod a nyitó készlet módosításához.", true);
+        return;
+      }
+
+      if (field === "received" && !can("canEditReceivedStock")) {
+        showMessage("Nincs jogosultságod a vételezés módosításához.", true);
+        return;
+      }
+
+      if (field === "salePriceAtShift" && !can("canEditSalePriceInShift")) {
+        showMessage("Nincs jogosultságod a stand közbeni egységár-módosításhoz.", true);
+        return;
+      }
+
       if (field === "openingFinal") {
         const note = prompt(`Miért módosítod a nyitót? Automata nyitó: ${formatNumber(row.openingAuto)}`, row.openingChangeNote || "");
 
@@ -2368,21 +2445,23 @@
       standTablePanel.style.display = "";
       standActions.style.display = "";
       financeDetails.style.display = "";
-      quickProductDetails.style.display = isOpenShift() ? "" : "none";
-      quickPurchasePriceBox.style.display = isAdmin() ? "" : "none";
+      quickProductDetails.style.display = isOpenShift() && can("canCreateProductFromStand") ? "" : "none";
+      quickPurchasePriceBox.style.display = can("canEditPurchasePrice") ? "" : "none";
       setDefaultFinanceDates();
 
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
         shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Lezárta: ${currentShift.closedByName || "-"} | Lezárva: ${formatDateTime(currentShift.closedAt)}`;
         saveDraftBtn.textContent = "Mentés";
+        saveDraftBtn.style.display = can("canModifyClosedShift") ? "" : "none";
         closeShiftBtn.style.display = "none";
         productSyncPanel.style.display = "none";
       } else {
         shiftTitle.textContent = "Aktuális stand";
         shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Nyitotta: ${currentShift.openedByName || "-"}`;
         saveDraftBtn.textContent = "Mentés";
-        closeShiftBtn.style.display = "";
+        saveDraftBtn.style.display = can("canSaveShift") ? "" : "none";
+        closeShiftBtn.style.display = can("canCloseShift") ? "" : "none";
       }
     }
 
@@ -2395,7 +2474,7 @@
       shiftTitle.textContent = "Nincs nyitott stand";
       shiftInfo.textContent = "Új stand nyitásához töltsd ki a dátumot és válaszd ki, kié a stand.";
       totalSales.textContent = "0 Ft";
-      openShiftPanel.style.display = "";
+      openShiftPanel.style.display = can("canOpenShift") ? "" : "none";
       standTablePanel.style.display = "none";
       standActions.style.display = "none";
       financeDetails.style.display = "";
@@ -2444,7 +2523,7 @@
       if (!products.length) {
         shiftTitle.textContent = "Nincs aktív termék";
         shiftInfo.textContent = "Először vigyél fel termékeket a terméklistában.";
-        openShiftPanel.style.display = "none";
+        openShiftPanel.style.display = can("canOpenShift") ? "" : "none";
         standTablePanel.style.display = "none";
         standActions.style.display = "none";
         quickProductDetails.style.display = "none";
@@ -2493,7 +2572,18 @@
         return;
       }
 
-      userInfo.textContent = `${currentUserData.name} - ${currentUserData.role === "admin" ? "Admin" : "Dolgozó"}`;
+      if (!can("canViewStand")) {
+        userInfo.textContent = "Nincs jogosultság a stand oldalhoz.";
+        shiftInfo.textContent = "Nincs jogosultság.";
+        standTablePanel.style.display = "none";
+        standActions.style.display = "none";
+        openShiftPanel.style.display = "none";
+        financeDetails.style.display = "none";
+        quickProductDetails.style.display = "none";
+        return;
+      }
+
+      userInfo.textContent = `${currentUserData.name} - ${roleLabel(currentUserData.role)}`;
       await loadPage();
     });
   </script>

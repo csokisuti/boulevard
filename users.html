@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boulevard - Felhasználók</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Felhasználók és jogosultságok</h1>
+      <p id="userInfo">Betöltés...</p>
+    </div>
+    <button id="backBtn" class="secondary-btn">Vissza</button>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Új felhasználói jogosultság-dokumentum</h2>
+          <p class="muted-cell">Az Authentication felhasználót külön kell létrehozni Firebase-ben. Itt ahhoz állítjuk be a név, szerepkör és jogosultság adatait UID alapján.</p>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label for="newUid">Firebase Auth UID</label>
+          <input id="newUid" type="text" placeholder="pl. a Firebase Authentication UID">
+        </div>
+        <div>
+          <label for="newName">Név</label>
+          <input id="newName" type="text" placeholder="pl. Pisti">
+        </div>
+        <div>
+          <label for="newEmail">Email</label>
+          <input id="newEmail" type="email" placeholder="pl. pisti@email.hu">
+        </div>
+        <div>
+          <label for="newRole">Szerepkör</label>
+          <select id="newRole">
+            <option value="dolgozo">Dolgozó</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="createUserDocBtn">Felhasználó dokumentum létrehozása</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Felhasználók</h2>
+          <p id="usersInfo">Betöltés...</p>
+        </div>
+        <button id="reloadBtn" class="secondary-dark-btn">Frissítés</button>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table users-table">
+          <thead>
+            <tr>
+              <th>Név</th>
+              <th>Email</th>
+              <th>Szerepkör</th>
+              <th>Állapot</th>
+              <th>Jogosultságok</th>
+              <th>Művelet</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div id="message"></div>
+  </main>
+
+  <script type="module">
+    import { auth, db } from "./firebase.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { PERMISSION_GROUPS, DEFAULT_ROLE_PERMISSIONS, normalizePermissions, hasPermission, roleLabel } from "./permissions.js";
+
+    const userInfo = document.getElementById("userInfo");
+    const backBtn = document.getElementById("backBtn");
+    const usersInfo = document.getElementById("usersInfo");
+    const usersBody = document.getElementById("usersBody");
+    const reloadBtn = document.getElementById("reloadBtn");
+    const message = document.getElementById("message");
+    const newUid = document.getElementById("newUid");
+    const newName = document.getElementById("newName");
+    const newEmail = document.getElementById("newEmail");
+    const newRole = document.getElementById("newRole");
+    const createUserDocBtn = document.getElementById("createUserDocBtn");
+
+    let currentUser = null;
+    let currentUserData = null;
+    let users = [];
+
+    backBtn.addEventListener("click", () => {
+      window.location.href = "dashboard.html";
+    });
+
+    reloadBtn.addEventListener("click", async () => {
+      await loadUsers();
+    });
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    function permissionInputsHtml(user) {
+      const permissions = normalizePermissions(user);
+      const disabledText = user.role === "admin" ? "disabled" : "";
+
+      return PERMISSION_GROUPS.map(group => `
+        <div class="permission-group">
+          <strong>${escapeHtml(group.title)}</strong>
+          ${group.items.map(([key, label]) => `
+            <label class="permission-check">
+              <input type="checkbox" data-permission="${escapeHtml(key)}" ${permissions[key] ? "checked" : ""} ${disabledText}>
+              <span>${escapeHtml(label)}</span>
+            </label>
+          `).join("")}
+        </div>
+      `).join("");
+    }
+
+    function permissionSummary(user) {
+      if (user.role === "admin") return "Minden jogosultság";
+      const permissions = normalizePermissions(user);
+      const enabled = Object.entries(permissions).filter(([, value]) => value === true).length;
+      const all = Object.keys(permissions).length;
+      return `${enabled}/${all} engedélyezve`;
+    }
+
+    function renderUsers() {
+      usersBody.innerHTML = "";
+      usersInfo.textContent = `${users.length} felhasználó`;
+
+      if (!users.length) {
+        usersBody.innerHTML = `<tr><td colspan="6">Nincs felhasználó dokumentum.</td></tr>`;
+        return;
+      }
+
+      users.forEach(user => {
+        const tr = document.createElement("tr");
+        tr.dataset.id = user.id;
+        tr.innerHTML = `
+          <td><input class="table-input wide-input user-name" value="${escapeHtml(user.name || "")}"></td>
+          <td><input class="table-input wide-input user-email" value="${escapeHtml(user.email || "")}"></td>
+          <td>
+            <select class="user-role">
+              <option value="dolgozo" ${user.role !== "admin" ? "selected" : ""}>Dolgozó</option>
+              <option value="admin" ${user.role === "admin" ? "selected" : ""}>Admin</option>
+            </select>
+          </td>
+          <td>
+            <select class="user-active">
+              <option value="true" ${user.active !== false ? "selected" : ""}>Aktív</option>
+              <option value="false" ${user.active === false ? "selected" : ""}>Inaktív</option>
+            </select>
+          </td>
+          <td>
+            <details class="permission-details">
+              <summary>${escapeHtml(permissionSummary(user))}</summary>
+              <div class="permissions-grid">
+                ${permissionInputsHtml(user)}
+              </div>
+            </details>
+          </td>
+          <td class="action-cell">
+            <button class="small-btn" data-action="save-user" data-id="${escapeHtml(user.id)}">Mentés</button>
+            <button class="small-btn" data-action="reset-default" data-id="${escapeHtml(user.id)}">Alap jogosultság</button>
+          </td>
+        `;
+        usersBody.appendChild(tr);
+      });
+    }
+
+    async function writeLog(action, details) {
+      await addDoc(collection(db, "logs"), {
+        action,
+        details,
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    async function loadUsers() {
+      showMessage("");
+      const usersQuery = query(collection(db, "users"), orderBy("name"));
+      const snap = await getDocs(usersQuery);
+      users = [];
+
+      snap.forEach(item => {
+        users.push({ id: item.id, ...item.data() });
+      });
+
+      renderUsers();
+    }
+
+    function collectUserRow(id) {
+      const tr = usersBody.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+      if (!tr) return null;
+
+      const role = tr.querySelector(".user-role").value;
+      const active = tr.querySelector(".user-active").value === "true";
+      const permissions = {};
+
+      tr.querySelectorAll("[data-permission]").forEach(input => {
+        permissions[input.dataset.permission] = input.checked;
+      });
+
+      return {
+        name: tr.querySelector(".user-name").value.trim(),
+        email: tr.querySelector(".user-email").value.trim(),
+        role,
+        active,
+        permissions: role === "admin" ? DEFAULT_ROLE_PERMISSIONS.admin : permissions
+      };
+    }
+
+    async function saveUser(id) {
+      const userData = collectUserRow(id);
+      if (!userData) return;
+
+      if (!userData.name) {
+        showMessage("A név kötelező.", true);
+        return;
+      }
+
+      await setDoc(doc(db, "users", id), {
+        ...userData,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      await writeLog("user_permissions_updated", {
+        targetUserId: id,
+        name: userData.name,
+        role: userData.role,
+        active: userData.active,
+        permissions: userData.permissions
+      });
+
+      showMessage("Felhasználó mentve.");
+      await loadUsers();
+    }
+
+    async function resetDefaultPermissions(id) {
+      const tr = usersBody.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+      if (!tr) return;
+      const role = tr.querySelector(".user-role").value;
+      const permissions = DEFAULT_ROLE_PERMISSIONS[role === "admin" ? "admin" : "dolgozo"];
+
+      await setDoc(doc(db, "users", id), {
+        role,
+        permissions,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      await writeLog("user_permissions_reset", {
+        targetUserId: id,
+        role,
+        permissions
+      });
+
+      showMessage("Alapértelmezett jogosultságok beállítva.");
+      await loadUsers();
+    }
+
+    async function createUserDocument() {
+      const uid = newUid.value.trim();
+      const name = newName.value.trim();
+      const email = newEmail.value.trim();
+      const role = newRole.value;
+
+      if (!uid || !name) {
+        showMessage("Az UID és a név kötelező.", true);
+        return;
+      }
+
+      const permissions = DEFAULT_ROLE_PERMISSIONS[role === "admin" ? "admin" : "dolgozo"];
+
+      await setDoc(doc(db, "users", uid), {
+        name,
+        email,
+        role,
+        active: true,
+        permissions,
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.uid,
+        createdByName: currentUserData.name,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      await writeLog("user_document_created", {
+        targetUserId: uid,
+        name,
+        email,
+        role,
+        permissions
+      });
+
+      newUid.value = "";
+      newName.value = "";
+      newEmail.value = "";
+      newRole.value = "dolgozo";
+      showMessage("Felhasználó dokumentum létrehozva.");
+      await loadUsers();
+    }
+
+    document.addEventListener("click", async event => {
+      const button = event.target.closest("button");
+      if (!button) return;
+
+      const action = button.dataset.action;
+      const id = button.dataset.id;
+
+      if (action === "save-user") await saveUser(id);
+      if (action === "reset-default") await resetDefaultPermissions(id);
+    });
+
+    document.addEventListener("change", event => {
+      const select = event.target.closest(".user-role");
+      if (!select) return;
+      const tr = select.closest("tr");
+      const user = users.find(item => item.id === tr.dataset.id);
+      if (!user) return;
+      user.role = select.value;
+      tr.querySelector(".permission-details").outerHTML = `
+        <details class="permission-details">
+          <summary>${escapeHtml(permissionSummary(user))}</summary>
+          <div class="permissions-grid">
+            ${permissionInputsHtml(user)}
+          </div>
+        </details>
+      `;
+    });
+
+    createUserDocBtn.addEventListener("click", createUserDocument);
+
+    onAuthStateChanged(auth, async user => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+
+      currentUser = user;
+      const userSnap = await getDoc(doc(db, "users", user.uid));
+
+      if (!userSnap.exists()) {
+        userInfo.textContent = "Nincs jogosultság.";
+        return;
+      }
+
+      currentUserData = userSnap.data();
+
+      if (!hasPermission(currentUserData, "canManageUsers")) {
+        userInfo.textContent = "Nincs jogosultság a felhasználók kezeléséhez.";
+        usersBody.innerHTML = `<tr><td colspan="6">Nincs jogosultság.</td></tr>`;
+        return;
+      }
+
+      userInfo.textContent = `${currentUserData.name} - ${roleLabel(currentUserData.role)}`;
+      await loadUsers();
+    });
+  </script>
+</body>
+</html>
