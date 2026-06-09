@@ -19,7 +19,7 @@
     <section class="panel">
       <div class="section-header">
         <div>
-          <h2>Aktuális műszak</h2>
+          <h2 id="shiftTitle">Aktuális műszak</h2>
           <p id="shiftInfo">Betöltés...</p>
         </div>
         <div class="summary-box">
@@ -68,6 +68,7 @@
 
     const userInfo = document.getElementById("userInfo");
     const shiftInfo = document.getElementById("shiftInfo");
+    const shiftTitle = document.getElementById("shiftTitle");
     const standBody = document.getElementById("standBody");
     const message = document.getElementById("message");
     const totalSales = document.getElementById("totalSales");
@@ -76,11 +77,15 @@
     const backBtn = document.getElementById("backBtn");
     const searchInput = document.getElementById("searchInput");
 
+    const params = new URLSearchParams(window.location.search);
+    const shiftIdFromUrl = params.get("shiftId");
+
     let currentUser = null;
     let currentUserData = null;
     let currentShift = null;
     let products = [];
     let rows = [];
+    let originalRows = [];
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
@@ -99,9 +104,28 @@
       return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
     }
 
+    function formatDate(value) {
+      if (!value) return "-";
+      const date = value.toDate ? value.toDate() : new Date(value);
+      return date.toLocaleString("hu-HU");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
     function showMessage(text, error = false) {
       message.textContent = text;
       message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    function isClosedShift() {
+      return currentShift && currentShift.status === "closed";
     }
 
     function calc(row) {
@@ -196,6 +220,17 @@
       };
     }
 
+    async function getShiftById(shiftId) {
+      const snap = await getDoc(doc(db, "shifts", shiftId));
+
+      if (!snap.exists()) return null;
+
+      return {
+        id: snap.id,
+        ...snap.data()
+      };
+    }
+
     async function createInitialShift() {
       const shiftRef = doc(collection(db, "shifts"));
       const batch = writeBatch(db);
@@ -261,7 +296,31 @@
       return map;
     }
 
+    function rowFromItem(item) {
+      return {
+        productId: item.productId || item.id,
+        productNameAtShift: item.productNameAtShift || "",
+        unitAtShift: item.unitAtShift || "db",
+        categoryAtShift: item.categoryAtShift || "",
+        sortOrderAtShift: item.sortOrderAtShift || 0,
+        openingAuto: item.openingAuto ?? 0,
+        openingFinal: item.openingFinal ?? item.openingAuto ?? 0,
+        openingChangeNote: item.openingChangeNote || "",
+        received: item.received ?? 0,
+        remaining: item.remaining ?? "",
+        salePriceAtShift: item.salePriceAtShift ?? 0,
+        purchasePriceAtShift: item.purchasePriceAtShift ?? 0,
+        adminReviewNeeded: false
+      };
+    }
+
     function mergeRows(itemMap) {
+      if (isClosedShift()) {
+        rows = Array.from(itemMap.values()).map(item => rowFromItem(item));
+        rows.sort((a, b) => (a.sortOrderAtShift || 0) - (b.sortOrderAtShift || 0));
+        return;
+      }
+
       rows = products.map(product => {
         const item = itemMap.get(product.id);
 
@@ -285,6 +344,73 @@
       rows.sort((a, b) => (a.sortOrderAtShift || 0) - (b.sortOrderAtShift || 0));
     }
 
+    function comparableValue(field, value) {
+      if (field === "openingChangeNote") {
+        return String(value || "").trim();
+      }
+
+      if (field === "remaining") {
+        return hasValue(value) ? toNumber(value) : "";
+      }
+
+      return toNumber(value);
+    }
+
+    function snapshotRow(row) {
+      return {
+        productId: row.productId,
+        productNameAtShift: row.productNameAtShift,
+        openingFinal: comparableValue("openingFinal", row.openingFinal),
+        openingChangeNote: comparableValue("openingChangeNote", row.openingChangeNote),
+        received: comparableValue("received", row.received),
+        remaining: comparableValue("remaining", row.remaining),
+        salePriceAtShift: comparableValue("salePriceAtShift", row.salePriceAtShift)
+      };
+    }
+
+    function setOriginalRows() {
+      originalRows = rows.map(row => snapshotRow(row));
+    }
+
+    function findChanges() {
+      const beforeMap = new Map();
+      const changes = [];
+      const fields = [
+        { key: "openingFinal", label: "Nyitó" },
+        { key: "openingChangeNote", label: "Nyitó megjegyzés" },
+        { key: "received", label: "Vételezés" },
+        { key: "remaining", label: "Maradvány" },
+        { key: "salePriceAtShift", label: "Egységár" }
+      ];
+
+      originalRows.forEach(row => {
+        beforeMap.set(row.productId, row);
+      });
+
+      rows.forEach(row => {
+        const before = beforeMap.get(row.productId);
+        if (!before) return;
+
+        fields.forEach(field => {
+          const beforeValue = before[field.key];
+          const afterValue = comparableValue(field.key, row[field.key]);
+
+          if (String(beforeValue) !== String(afterValue)) {
+            changes.push({
+              productId: row.productId,
+              productName: row.productNameAtShift,
+              field: field.key,
+              fieldLabel: field.label,
+              before: beforeValue,
+              after: afterValue
+            });
+          }
+        });
+      });
+
+      return changes;
+    }
+
     function renderRows() {
       const search = searchInput.value.trim().toLowerCase();
       standBody.innerHTML = "";
@@ -303,18 +429,18 @@
 
         tr.innerHTML = `
           <td>
-            <strong>${row.productNameAtShift}</strong>
+            <strong>${escapeHtml(row.productNameAtShift)}</strong>
             ${row.adminReviewNeeded ? `<span class="mini-badge">ellenőrizendő</span>` : ""}
           </td>
-          <td>${row.unitAtShift}</td>
-          <td><input class="table-input" data-field="openingFinal" value="${row.openingFinal}"></td>
-          <td><input class="table-input note-input" data-field="openingChangeNote" value="${row.openingChangeNote || ""}" placeholder="ha nyitót módosítasz"></td>
-          <td><input class="table-input" data-field="received" value="${row.received}"></td>
+          <td>${escapeHtml(row.unitAtShift)}</td>
+          <td><input class="table-input" data-field="openingFinal" value="${escapeHtml(row.openingFinal)}"></td>
+          <td><input class="table-input note-input" data-field="openingChangeNote" value="${escapeHtml(row.openingChangeNote || "")}" placeholder="ha nyitót módosítasz"></td>
+          <td><input class="table-input" data-field="received" value="${escapeHtml(row.received)}"></td>
           <td class="calc-total">${c.total}</td>
-          <td><input class="table-input" data-field="remaining" value="${row.remaining}"></td>
+          <td><input class="table-input" data-field="remaining" value="${escapeHtml(row.remaining)}"></td>
           <td class="calc-consumption">${c.consumption}</td>
           <td class="calc-current">${c.currentStock}</td>
-          <td><input class="table-input price-input" data-field="salePriceAtShift" value="${row.salePriceAtShift}"></td>
+          <td><input class="table-input price-input" data-field="salePriceAtShift" value="${escapeHtml(row.salePriceAtShift)}"></td>
           <td class="calc-sales">${formatMoney(c.salesValue)}</td>
         `;
 
@@ -396,29 +522,89 @@
         return;
       }
 
+      const closed = isClosedShift();
+      const changes = closed ? findChanges() : [];
+
+      if (closed && !changes.length) {
+        showMessage("Nem történt módosítás.");
+        return;
+      }
+
+      const totalSalesValue = rows.reduce((sum, row) => sum + calc(row).salesValue, 0);
+      const totalPurchaseValue = rows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
+      const totalMarginValue = totalSalesValue - totalPurchaseValue;
       const batch = writeBatch(db);
+      const changedProductIds = new Set(changes.map(change => change.productId));
 
       rows.forEach(row => {
+        if (closed && !changedProductIds.has(row.productId)) return;
+
         const itemRef = doc(db, "shifts", currentShift.id, "items", row.productId);
         batch.set(itemRef, itemDataFromRow(row), { merge: true });
       });
 
-      batch.set(doc(db, "shifts", currentShift.id), {
+      const shiftUpdate = {
+        totalSalesValue,
+        totalPurchaseValue,
+        totalMarginValue,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
-      }, { merge: true });
+      };
+
+      if (closed) {
+        shiftUpdate.modifiedAfterClose = true;
+        shiftUpdate.lastModifiedAfterCloseAt = serverTimestamp();
+        shiftUpdate.lastModifiedAfterCloseBy = currentUser.uid;
+        shiftUpdate.lastModifiedAfterCloseByName = currentUserData.name;
+      }
+
+      batch.set(doc(db, "shifts", currentShift.id), shiftUpdate, { merge: true });
+
+      if (closed) {
+        const logRef = doc(collection(db, "logs"));
+        batch.set(logRef, {
+          action: "closed_shift_modified",
+          details: {
+            shiftId: currentShift.id,
+            shiftLabel: currentShift.shiftLabel || "",
+            changes,
+            totalSalesValue,
+            totalPurchaseValue,
+            totalMarginValue
+          },
+          userId: currentUser.uid,
+          userName: currentUserData.name,
+          userRole: currentUserData.role,
+          createdAt: serverTimestamp()
+        });
+      }
 
       await batch.commit();
 
-      await writeLog("shift_draft_saved", {
-        shiftId: currentShift.id
-      });
+      if (!closed) {
+        await writeLog("shift_draft_saved", {
+          shiftId: currentShift.id
+        });
 
-      showMessage("Piszkozat mentve.");
+        showMessage("Piszkozat mentve.");
+      } else {
+        currentShift = {
+          ...currentShift,
+          ...shiftUpdate
+        };
+
+        setOriginalRows();
+        showMessage("Lezárt stand módosítása mentve és naplózva.");
+      }
     }
 
     async function closeShift() {
+      if (isClosedShift()) {
+        showMessage("Ez a műszak már lezárt. A módosítás mentéséhez használd a mentés gombot.", true);
+        return;
+      }
+
       const error = validateRows(true);
 
       if (error) {
@@ -552,9 +738,46 @@
     closeShiftBtn.addEventListener("click", closeShift);
     searchInput.addEventListener("input", renderRows);
 
+    function updateHeader() {
+      if (!currentShift) return;
+
+      const shiftName = currentShift.shiftLabel || "Műszak";
+
+      if (isClosedShift()) {
+        shiftTitle.textContent = "Lezárt stand";
+        shiftInfo.textContent = `${shiftName} - lezárva: ${formatDate(currentShift.closedAt)} - lezárta: ${currentShift.closedByName || "-"}`;
+        saveDraftBtn.textContent = "Módosítás mentése naplózva";
+        closeShiftBtn.style.display = "none";
+      } else {
+        shiftTitle.textContent = "Aktuális műszak";
+        shiftInfo.textContent = `${shiftName} - nyitva`;
+        saveDraftBtn.textContent = "Piszkozat mentése";
+        closeShiftBtn.style.display = "";
+      }
+    }
+
     async function loadPage() {
       showMessage("");
       products = await loadProductsCached();
+
+      if (shiftIdFromUrl) {
+        currentShift = await getShiftById(shiftIdFromUrl);
+
+        if (!currentShift) {
+          shiftInfo.textContent = "Nem található ez a stand.";
+          rows = [];
+          renderRows();
+          return;
+        }
+
+        updateHeader();
+
+        const itemMap = await loadShiftItems(currentShift.id);
+        mergeRows(itemMap);
+        setOriginalRows();
+        renderRows();
+        return;
+      }
 
       if (!products.length) {
         shiftInfo.textContent = "Nincs aktív termék. Először vigyél fel termékeket a terméklistában.";
@@ -569,10 +792,11 @@
         currentShift = await createInitialShift();
       }
 
-      shiftInfo.textContent = `${currentShift.shiftLabel || "Aktuális műszak"} - ${currentShift.status === "open" ? "nyitva" : currentShift.status}`;
+      updateHeader();
 
       const itemMap = await loadShiftItems(currentShift.id);
       mergeRows(itemMap);
+      setOriginalRows();
       renderRows();
     }
 
