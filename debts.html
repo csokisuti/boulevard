@@ -190,6 +190,21 @@
       return 0;
     }
 
+    function canEditDebtToday(debt) {
+      return !!currentShift &&
+        can("canEditTodayDebt") &&
+        debt &&
+        debt.status !== "paid" &&
+        debt.createdShiftId === currentShift.id;
+    }
+
+    function debtStatusAfter(originalAmount, paidAmount) {
+      const remainingAmount = originalAmount - paidAmount;
+      if (remainingAmount <= 0) return "paid";
+      if (paidAmount > 0) return "partial";
+      return "open";
+    }
+
     async function writeLog(action, details) {
       await addDoc(collection(db, "logs"), {
         action,
@@ -340,21 +355,35 @@
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
           const canPay = !!currentShift && can("canPayDebt");
+          const canEditToday = canEditDebtToday(debt);
 
           tr.innerHTML = `
             <td>${formatDateTime(debt.createdAt)}</td>
-            <td>${escapeHtml(debt.name || "")}</td>
-            <td>${formatMoney(debt.originalAmount)}</td>
+            <td>
+              ${canEditToday
+                ? `<input class="table-input debt-edit-name-input" data-id="${debt.id}" value="${escapeHtml(debt.name || "")}">`
+                : escapeHtml(debt.name || "")}
+            </td>
+            <td>
+              ${canEditToday
+                ? `<input class="table-input debt-edit-amount-input" data-id="${debt.id}" type="number" min="0" value="${toNumber(debt.originalAmount)}">`
+                : formatMoney(debt.originalAmount)}
+            </td>
             <td>${formatMoney(debt.paidAmount)}</td>
             <td><strong>${formatMoney(debt.remainingAmount)}</strong></td>
             <td>${escapeHtml(debt.createdShiftLabel || "")}</td>
-            <td>${escapeHtml(debt.note || "")}</td>
+            <td>
+              ${canEditToday
+                ? `<input class="table-input debt-edit-note-input" data-id="${debt.id}" value="${escapeHtml(debt.note || "")}" placeholder="Megjegyzés">`
+                : escapeHtml(debt.note || "")}
+            </td>
             <td>${paymentHistoryHtml(debt)}</td>
             <td>
               <input class="table-input debt-payment-input" data-id="${debt.id}" type="number" min="0" value="${toNumber(debt.remainingAmount)}" ${canPay ? "" : "disabled"}>
             </td>
             <td>
               <button class="small-btn" data-action="pay-debt" data-id="${debt.id}" ${canPay ? "" : "disabled"}>Befizetés</button>
+              ${canEditToday ? `<button class="small-btn secondary-inline-btn" data-action="edit-today-debt" data-id="${debt.id}">Javítás</button>` : ""}
             </td>
           `;
 
@@ -393,6 +422,10 @@
       let expense = 0;
       let debtCreated = 0;
       let debtPaid = 0;
+      let cardPayment = 0;
+      let lottoTurnover = 0;
+      let repi = 0;
+      let previousHandover = 0;
 
       movementsSnap.forEach(item => {
         const data = item.data();
@@ -402,17 +435,30 @@
         if (data.type === "expense") expense += amount;
         if (data.type === "debt_create") debtCreated += amount;
         if (data.type === "debt_payment") debtPaid += amount;
+        if (data.type === "card_payment") cardPayment += amount;
+        if (data.type === "lotto_turnover") lottoTurnover += amount;
+        if (data.type === "repi") repi += amount;
+        if (data.type === "previous_handover") previousHandover += amount;
       });
 
+      if (previousHandover === 0 && currentShift.totalPreviousHandover !== undefined) {
+        previousHandover = toNumber(currentShift.totalPreviousHandover);
+      }
+
       const totalSalesValue = toNumber(currentShift.totalSalesValue);
-      const totalCashExpected = totalSalesValue + income - expense - debtCreated + debtPaid;
+      const totalCashExpected = previousHandover + totalSalesValue + income - expense - debtCreated + debtPaid - cardPayment + lottoTurnover - repi;
 
       await setDoc(doc(db, "shifts", currentShift.id), {
         totalMoneyIncome: income,
         totalMoneyExpense: expense,
         totalDebtCreated: debtCreated,
         totalDebtPaid: debtPaid,
+        totalCardPayment: cardPayment,
+        totalLottoTurnover: lottoTurnover,
+        totalRepi: repi,
+        totalPreviousHandover: previousHandover,
         totalCashExpected,
+        handoverAmount: totalCashExpected,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
@@ -504,6 +550,138 @@
       newDebtNote.value = "";
 
       showMessage("Tartozás felírva és levonva az aktuális pénztárból.");
+      await loadPaymentHistory();
+      await loadDebts();
+    }
+
+    async function editTodayDebt(debtId, name, originalAmount, note) {
+      if (!can("canEditTodayDebt")) {
+        showMessage("Nincs jogosultságod az aznapi tartozás javításához.", true);
+        return;
+      }
+
+      if (!currentShift) {
+        showMessage("Tartozást javítani csak nyitott stand mellett lehet.", true);
+        return;
+      }
+
+      const debt = debts.find(item => item.id === debtId);
+
+      if (!debt) {
+        showMessage("Nem található ez a tartozás.", true);
+        return;
+      }
+
+      if (!canEditDebtToday(debt)) {
+        showMessage("Csak az aktuális nyitott standban felírt tartozás javítható.", true);
+        return;
+      }
+
+      const cleanName = String(name || "").trim();
+      const cleanNote = String(note || "").trim();
+      const newOriginalAmount = toNumber(originalAmount);
+      const paidAmount = toNumber(debt.paidAmount);
+
+      if (!cleanName) {
+        showMessage("A név kötelező.", true);
+        return;
+      }
+
+      if (newOriginalAmount <= 0) {
+        showMessage("Az összegnek nagyobbnak kell lennie nullánál.", true);
+        return;
+      }
+
+      if (newOriginalAmount < paidAmount) {
+        showMessage(`Az eredeti összeg nem lehet kisebb a már befizetett összegnél: ${formatMoney(paidAmount)}`, true);
+        return;
+      }
+
+      const before = {
+        name: debt.name || "",
+        originalAmount: toNumber(debt.originalAmount),
+        paidAmount,
+        remainingAmount: toNumber(debt.remainingAmount),
+        note: debt.note || "",
+        status: debt.status || "open"
+      };
+
+      const remainingAmount = newOriginalAmount - paidAmount;
+      const status = debtStatusAfter(newOriginalAmount, paidAmount);
+      const after = {
+        name: cleanName,
+        originalAmount: newOriginalAmount,
+        paidAmount,
+        remainingAmount,
+        note: cleanNote,
+        status
+      };
+
+      if (JSON.stringify(before) === JSON.stringify(after)) {
+        showMessage("Nem történt változás.");
+        return;
+      }
+
+      const confirmed = confirm(`Biztosan javítod ezt a tartozást?\n${before.name}: ${formatMoney(before.originalAmount)} → ${cleanName}: ${formatMoney(newOriginalAmount)}`);
+
+      if (!confirmed) return;
+
+      const batch = writeBatch(db);
+
+      batch.set(doc(db, "debts", debtId), {
+        name: cleanName,
+        originalAmount: newOriginalAmount,
+        remainingAmount,
+        status,
+        note: cleanNote,
+        correctedAt: serverTimestamp(),
+        correctedBy: currentUser.uid,
+        correctedByName: currentUserData.name,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      const movementsSnap = await getDocs(collection(db, "shifts", currentShift.id, "moneyMovements"));
+      let movementUpdated = false;
+
+      movementsSnap.forEach(item => {
+        const data = item.data();
+
+        if (data.type === "debt_create" && data.debtId === debtId) {
+          movementUpdated = true;
+          batch.set(doc(db, "shifts", currentShift.id, "moneyMovements", item.id), {
+            amount: newOriginalAmount,
+            personName: cleanName,
+            note: cleanNote,
+            updatedAt: serverTimestamp(),
+            updatedBy: currentUser.uid,
+            updatedByName: currentUserData.name
+          }, { merge: true });
+        }
+      });
+
+      const logRef = doc(collection(db, "logs"));
+      batch.set(logRef, {
+        action: "today_debt_corrected_from_debts_page",
+        details: {
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          debtId,
+          before,
+          after,
+          movementUpdated
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+      await updateShiftMoneyTotals();
+
+      showMessage("Aznapi tartozás javítva és a pénztár újraszámolva.");
       await loadPaymentHistory();
       await loadDebts();
     }
@@ -613,6 +791,19 @@
         const input = document.querySelector(`.debt-payment-input[data-id="${id}"]`);
         const amount = input ? toNumber(input.value) : 0;
         await payDebt(id, amount);
+      }
+
+      if (action === "edit-today-debt") {
+        const nameInput = document.querySelector(`.debt-edit-name-input[data-id="${id}"]`);
+        const amountInput = document.querySelector(`.debt-edit-amount-input[data-id="${id}"]`);
+        const noteInput = document.querySelector(`.debt-edit-note-input[data-id="${id}"]`);
+
+        await editTodayDebt(
+          id,
+          nameInput ? nameInput.value : "",
+          amountInput ? amountInput.value : 0,
+          noteInput ? noteInput.value : ""
+        );
       }
     });
 
