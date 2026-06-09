@@ -545,6 +545,39 @@ input:disabled {
   width: 220px;
 }
 
+.sync-panel {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #fffbeb;
+  border: 1px solid #fbbf24;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.sync-panel strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #92400e;
+}
+
+.sync-panel span {
+  color: #92400e;
+}
+
+.sync-panel button {
+  width: auto;
+  margin: 0;
+  background: #92400e;
+}
+
+.sync-panel button:hover {
+  background: #78350f;
+}
+
 @media (max-width: 700px) {
   .topbar {
     align-items: flex-start;
@@ -557,7 +590,8 @@ input:disabled {
   }
 
   .stand-actions button,
-  .button-row button {
+  .button-row button,
+  .sync-panel button {
     width: 100%;
   }
 
