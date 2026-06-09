@@ -50,8 +50,7 @@
       </div>
 
       <div class="stand-actions" id="standActions">
-        <input id="searchInput" type="text" placeholder="Termék keresése...">
-        <button id="saveDraftBtn">Piszkozat mentése</button>
+        <button id="saveDraftBtn">Mentés</button>
         <button id="closeShiftBtn" class="danger-btn">Stand lezárása</button>
       </div>
 
@@ -64,6 +63,81 @@
       </div>
 
       <div id="message"></div>
+    </section>
+
+    <details class="panel collapsible-panel" id="quickProductDetails" style="display:none;">
+      <summary>Új termék felvitele</summary>
+
+      <div class="form-grid">
+        <div>
+          <label for="quickName">Terméknév</label>
+          <input id="quickName" type="text">
+        </div>
+
+        <div>
+          <label for="quickCategory">Kategória</label>
+          <select id="quickCategory"></select>
+        </div>
+
+        <div>
+          <label for="quickNewCategory">Új kategória, ha nincs a listában</label>
+          <input id="quickNewCategory" type="text" placeholder="csak ha új kategória kell">
+        </div>
+
+        <div>
+          <label for="quickUnit">Mértékegység</label>
+          <select id="quickUnit">
+            <option value="db">db</option>
+            <option value="liter">liter</option>
+            <option value="számoló">számoló</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="quickSalePrice">Eladási ár</label>
+          <input id="quickSalePrice" type="number" min="0">
+        </div>
+
+        <div id="quickPurchasePriceBox">
+          <label for="quickPurchasePrice">Beszerzési ár</label>
+          <input id="quickPurchasePrice" type="number" min="0">
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="quickAddProductBtn">Termék mentése és hozzáadása ehhez a standhoz</button>
+      </div>
+    </details>
+
+    <section class="panel" id="standTablePanel">
+      <div class="section-header">
+        <div>
+          <h2>Termékek</h2>
+          <p>Csak a maradvány / záró mező aktív alapból.</p>
+        </div>
+        <input id="searchInput" type="text" placeholder="Termék keresése...">
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table stand-table">
+          <thead>
+            <tr>
+              <th>Termék</th>
+              <th>Egység</th>
+              <th>Nyitó</th>
+              <th>Vételezés</th>
+              <th>Vét. megj.</th>
+              <th>Összesen</th>
+              <th>Maradvány / záró</th>
+              <th>Fogyás</th>
+              <th>Készlet most</th>
+              <th>Egységár</th>
+              <th>Eladási érték</th>
+            </tr>
+          </thead>
+          <tbody id="standBody"></tbody>
+        </table>
+      </div>
     </section>
 
     <details class="panel collapsible-panel" id="financeDetails">
@@ -143,6 +217,7 @@
           <table class="data-table finance-table">
             <thead>
               <tr>
+                <th>Dátum</th>
                 <th>Név</th>
                 <th>Eredeti összeg</th>
                 <th>Befizetve</th>
@@ -174,73 +249,6 @@
         </div>
       </div>
     </details>
-
-    <details class="panel collapsible-panel" id="quickProductDetails" style="display:none;">
-      <summary>+ Új termék felvitele stand közben</summary>
-
-      <div class="form-grid">
-        <div>
-          <label for="quickName">Terméknév</label>
-          <input id="quickName" type="text">
-        </div>
-
-        <div>
-          <label for="quickCategory">Kategória</label>
-          <select id="quickCategory"></select>
-        </div>
-
-        <div>
-          <label for="quickNewCategory">Új kategória, ha nincs a listában</label>
-          <input id="quickNewCategory" type="text" placeholder="csak ha új kategória kell">
-        </div>
-
-        <div>
-          <label for="quickUnit">Mértékegység</label>
-          <select id="quickUnit">
-            <option value="db">db</option>
-            <option value="liter">liter</option>
-            <option value="számoló">számoló</option>
-          </select>
-        </div>
-
-        <div>
-          <label for="quickSalePrice">Eladási ár</label>
-          <input id="quickSalePrice" type="number" min="0">
-        </div>
-
-        <div id="quickPurchasePriceBox">
-          <label for="quickPurchasePrice">Beszerzési ár</label>
-          <input id="quickPurchasePrice" type="number" min="0">
-        </div>
-      </div>
-
-      <div class="button-row">
-        <button id="quickAddProductBtn">Termék mentése és hozzáadása ehhez a standhoz</button>
-      </div>
-    </details>
-
-    <section class="panel" id="standTablePanel">
-      <div class="table-wrapper">
-        <table class="data-table stand-table">
-          <thead>
-            <tr>
-              <th>Termék</th>
-              <th>Egység</th>
-              <th>Nyitó</th>
-              <th>Vételezés</th>
-              <th>Vét. megj.</th>
-              <th>Összesen</th>
-              <th>Maradvány / záró</th>
-              <th>Fogyás</th>
-              <th>Készlet most</th>
-              <th>Egységár</th>
-              <th>Eladási érték</th>
-            </tr>
-          </thead>
-          <tbody id="standBody"></tbody>
-        </table>
-      </div>
-    </section>
   </main>
 
   <script type="module">
@@ -597,9 +605,9 @@
       });
 
       loadedProducts.sort((a, b) => {
-        const categoryCompare = String(a.category || "Egyéb").localeCompare(String(b.category || "Egyéb"), "hu");
+        const categoryCompare = String(a.category || "Egyéb").localeCompare(String(b.category || "Egyéb"), "hu", { sensitivity: "base" });
         if (categoryCompare !== 0) return categoryCompare;
-        return (a.sortOrder || 0) - (b.sortOrder || 0);
+        return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
       });
 
       localStorage.setItem("boulevardProductsCacheV1", JSON.stringify({
@@ -746,13 +754,14 @@
       openDebtsBody.innerHTML = "";
 
       if (!openDebts.length) {
-        openDebtsBody.innerHTML = `<tr><td colspan="5">Nincs nyitott tartozás.</td></tr>`;
+        openDebtsBody.innerHTML = `<tr><td colspan="6">Nincs nyitott tartozás.</td></tr>`;
         return;
       }
 
       openDebts.forEach(debt => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
+          <td>${formatDateTime(debt.createdAt)}</td>
           <td>${escapeHtml(debt.name || "")}</td>
           <td>${formatMoney(debt.originalAmount)}</td>
           <td>${formatMoney(debt.paidAmount)}</td>
@@ -909,9 +918,13 @@
 
     function sortRowsForStand() {
       rows.sort((a, b) => {
-        const categoryCompare = categoryName(a).localeCompare(categoryName(b), "hu");
-        if (categoryCompare !== 0) return categoryCompare;
-        return (a.sortOrderAtShift || 0) - (b.sortOrderAtShift || 0);
+        const categoryCompare = categoryName(a).localeCompare(categoryName(b), "hu", { sensitivity: "base" });
+
+        if (categoryCompare !== 0) {
+          return categoryCompare;
+        }
+
+        return String(a.productNameAtShift || "").localeCompare(String(b.productNameAtShift || ""), "hu", { sensitivity: "base" });
       });
     }
 
@@ -1527,7 +1540,7 @@
           financials: financialDetailsForLog()
         });
 
-        showMessage("Piszkozat mentve.");
+        showMessage("Mentve.");
       } else {
         await propagateRemainingChanges(changes);
 
@@ -2097,7 +2110,6 @@
     function updateHeader() {
       if (!currentShift) return;
 
-      const shiftName = currentShift.shiftLabel || "Stand";
       const standOwner = currentShift.assignedUserName || "-";
       const businessDate = currentShift.businessDate ? formatBusinessDate(currentShift.businessDate) : "-";
 
@@ -2110,14 +2122,14 @@
 
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
-        shiftInfo.textContent = `${shiftName} - dátum: ${businessDate} - stand: ${standOwner} - lezárta: ${currentShift.closedByName || "-"} - lezárva: ${formatDateTime(currentShift.closedAt)}`;
-        saveDraftBtn.textContent = "Módosítás mentése naplózva";
+        shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Lezárta: ${currentShift.closedByName || "-"} | Lezárva: ${formatDateTime(currentShift.closedAt)}`;
+        saveDraftBtn.textContent = "Mentés";
         closeShiftBtn.style.display = "none";
         productSyncPanel.style.display = "none";
       } else {
         shiftTitle.textContent = "Aktuális stand";
-        shiftInfo.textContent = `${shiftName} - dátum: ${businessDate} - stand: ${standOwner} - nyitotta: ${currentShift.openedByName || "-"}`;
-        saveDraftBtn.textContent = "Piszkozat mentése";
+        shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Nyitotta: ${currentShift.openedByName || "-"}`;
+        saveDraftBtn.textContent = "Mentés";
         closeShiftBtn.style.display = "";
       }
     }
