@@ -16,10 +16,31 @@
   </header>
 
   <main class="container">
+    <section class="panel" id="openShiftPanel" style="display:none;">
+      <h2>Új stand nyitása</h2>
+      <p>Nincs jelenleg nyitott stand. Újat csak külön gombbal nyitunk, így látszik, ki és mikor nyitotta.</p>
+
+      <div class="form-grid">
+        <div>
+          <label for="shiftDate">Dátum</label>
+          <input id="shiftDate" type="date">
+        </div>
+
+        <div>
+          <label for="assignedUserSelect">Kié a stand?</label>
+          <select id="assignedUserSelect"></select>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="openShiftBtn">Stand megnyitása</button>
+      </div>
+    </section>
+
     <section class="panel">
       <div class="section-header">
         <div>
-          <h2 id="shiftTitle">Aktuális műszak</h2>
+          <h2 id="shiftTitle">Aktuális stand</h2>
           <p id="shiftInfo">Betöltés...</p>
         </div>
         <div class="summary-box">
@@ -28,16 +49,16 @@
         </div>
       </div>
 
-      <div class="stand-actions">
+      <div class="stand-actions" id="standActions">
         <input id="searchInput" type="text" placeholder="Termék keresése...">
         <button id="saveDraftBtn">Piszkozat mentése</button>
-        <button id="closeShiftBtn" class="danger-btn">Műszak lezárása</button>
+        <button id="closeShiftBtn" class="danger-btn">Stand lezárása</button>
       </div>
 
       <div id="message"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="standTablePanel">
       <div class="table-wrapper">
         <table class="data-table stand-table">
           <thead>
@@ -64,7 +85,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, addDoc, serverTimestamp, query, where, limit, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
     const userInfo = document.getElementById("userInfo");
     const shiftInfo = document.getElementById("shiftInfo");
@@ -76,6 +97,12 @@
     const closeShiftBtn = document.getElementById("closeShiftBtn");
     const backBtn = document.getElementById("backBtn");
     const searchInput = document.getElementById("searchInput");
+    const openShiftPanel = document.getElementById("openShiftPanel");
+    const standTablePanel = document.getElementById("standTablePanel");
+    const standActions = document.getElementById("standActions");
+    const shiftDate = document.getElementById("shiftDate");
+    const assignedUserSelect = document.getElementById("assignedUserSelect");
+    const openShiftBtn = document.getElementById("openShiftBtn");
 
     const params = new URLSearchParams(window.location.search);
     const shiftIdFromUrl = params.get("shiftId");
@@ -84,12 +111,21 @@
     let currentUserData = null;
     let currentShift = null;
     let products = [];
+    let users = [];
     let rows = [];
     let originalRows = [];
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
     });
+
+    function getTodayInputDate() {
+      const d = new Date();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
 
     function toNumber(value) {
       const n = Number(String(value ?? "0").replace(",", "."));
@@ -104,10 +140,17 @@
       return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
     }
 
-    function formatDate(value) {
+    function formatDateTime(value) {
       if (!value) return "-";
       const date = value.toDate ? value.toDate() : new Date(value);
       return date.toLocaleString("hu-HU");
+    }
+
+    function formatBusinessDate(value) {
+      if (!value) return "-";
+      const parts = String(value).split("-");
+      if (parts.length !== 3) return value;
+      return `${parts[0]}.${parts[1]}.${parts[2]}.`;
     }
 
     function escapeHtml(value) {
@@ -165,6 +208,45 @@
         userRole: currentUserData.role,
         createdAt: serverTimestamp()
       });
+    }
+
+    async function loadUsers() {
+      const snap = await getDocs(collection(db, "users"));
+      users = [];
+
+      snap.forEach(item => {
+        const data = item.data();
+
+        if (data.active !== false) {
+          users.push({
+            id: item.id,
+            ...data
+          });
+        }
+      });
+
+      users.sort((a, b) => String(a.name || a.email || "").localeCompare(String(b.name || b.email || ""), "hu"));
+      renderUserSelect();
+    }
+
+    function renderUserSelect() {
+      assignedUserSelect.innerHTML = "";
+
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "Válassz dolgozót";
+      assignedUserSelect.appendChild(emptyOption);
+
+      users.forEach(user => {
+        const option = document.createElement("option");
+        option.value = user.id;
+        option.textContent = `${user.name || user.email || user.id}`;
+        assignedUserSelect.appendChild(option);
+      });
+
+      if (currentUser && users.some(user => user.id === currentUser.uid)) {
+        assignedUserSelect.value = currentUser.uid;
+      }
     }
 
     async function loadProductsCached() {
@@ -231,54 +313,20 @@
       };
     }
 
-    async function createInitialShift() {
-      const shiftRef = doc(collection(db, "shifts"));
-      const batch = writeBatch(db);
+    async function getLastClosedShift() {
+      const q = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(1));
+      const snap = await getDocs(q);
 
-      batch.set(shiftRef, {
-        status: "open",
-        shiftLabel: `Műszak ${new Date().toLocaleString("hu-HU")}`,
-        openedAt: serverTimestamp(),
-        openedBy: currentUser.uid,
-        openedByName: currentUserData.name,
-        totalSalesValue: 0,
-        totalPurchaseValue: 0,
-        totalMarginValue: 0,
-        createdAt: serverTimestamp()
-      });
+      if (snap.empty) return null;
 
-      products.forEach(product => {
-        const itemRef = doc(db, "shifts", shiftRef.id, "items", product.id);
-        batch.set(itemRef, {
-          productId: product.id,
-          productNameAtShift: product.name || "",
-          unitAtShift: product.unit || "db",
-          categoryAtShift: product.category || "",
-          sortOrderAtShift: product.sortOrder || 0,
-          openingAuto: 0,
-          openingFinal: 0,
-          openingChangeNote: "",
-          received: 0,
-          remaining: "",
-          salePriceAtShift: product.salePrice || 0,
-          purchasePriceAtShift: product.purchasePrice || 0,
-          updatedAt: serverTimestamp()
-        });
-      });
+      const item = snap.docs[0];
+      const data = item.data();
 
-      await batch.commit();
-
-      await writeLog("shift_created", {
-        shiftId: shiftRef.id,
-        reason: "initial"
-      });
+      if (data.status !== "closed") return null;
 
       return {
-        id: shiftRef.id,
-        status: "open",
-        shiftLabel: `Műszak ${new Date().toLocaleString("hu-HU")}`,
-        openedBy: currentUser.uid,
-        openedByName: currentUserData.name
+        id: item.id,
+        ...data
       };
     }
 
@@ -294,6 +342,112 @@
       });
 
       return map;
+    }
+
+    async function openNewShift() {
+      const selectedDate = shiftDate.value;
+      const assignedUserId = assignedUserSelect.value;
+      const assignedUser = users.find(user => user.id === assignedUserId);
+
+      if (!selectedDate) {
+        showMessage("A dátum kötelező.", true);
+        return;
+      }
+
+      if (!assignedUser) {
+        showMessage("Válaszd ki, kié a stand.", true);
+        return;
+      }
+
+      if (!products.length) {
+        showMessage("Nincs aktív termék. Először vigyél fel termékeket.", true);
+        return;
+      }
+
+      const existingOpenShift = await getOpenShift();
+
+      if (existingOpenShift) {
+        showMessage("Már van nyitott stand. Előbb azt kell lezárni.", true);
+        return;
+      }
+
+      const previousShift = await getLastClosedShift();
+      const previousItems = previousShift ? await loadShiftItems(previousShift.id) : new Map();
+      const shiftRef = doc(collection(db, "shifts"));
+      const batch = writeBatch(db);
+      const shiftLabel = `${formatBusinessDate(selectedDate)} - ${assignedUser.name || assignedUser.email || "Stand"}`;
+
+      const shiftData = {
+        status: "open",
+        shiftLabel,
+        businessDate: selectedDate,
+        assignedUserId: assignedUser.id,
+        assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
+        openedAt: serverTimestamp(),
+        openedBy: currentUser.uid,
+        openedByName: currentUserData.name,
+        totalSalesValue: 0,
+        totalPurchaseValue: 0,
+        totalMarginValue: 0,
+        createdAt: serverTimestamp()
+      };
+
+      if (previousShift) {
+        shiftData.previousShiftId = previousShift.id;
+        shiftData.previousShiftLabel = previousShift.shiftLabel || "";
+      }
+
+      batch.set(shiftRef, shiftData);
+
+      products.forEach(product => {
+        const previousItem = previousItems.get(product.id);
+        const opening = previousItem ? toNumber(previousItem.remaining) : 0;
+        const itemRef = doc(db, "shifts", shiftRef.id, "items", product.id);
+
+        batch.set(itemRef, {
+          productId: product.id,
+          productNameAtShift: product.name || "",
+          unitAtShift: product.unit || "db",
+          categoryAtShift: product.category || "",
+          sortOrderAtShift: product.sortOrder || 0,
+          openingAuto: opening,
+          openingFinal: opening,
+          openingChangeNote: "",
+          openingChanged: false,
+          received: 0,
+          total: opening,
+          remaining: "",
+          consumption: 0,
+          currentStock: opening,
+          salePriceAtShift: product.salePrice || 0,
+          purchasePriceAtShift: product.purchasePrice || 0,
+          salesValue: 0,
+          purchaseValue: 0,
+          marginValue: 0,
+          updatedAt: serverTimestamp()
+        });
+      });
+
+      const logRef = doc(collection(db, "logs"));
+      batch.set(logRef, {
+        action: "shift_opened",
+        details: {
+          shiftId: shiftRef.id,
+          shiftLabel,
+          businessDate: selectedDate,
+          assignedUserId: assignedUser.id,
+          assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
+          previousShiftId: previousShift ? previousShift.id : ""
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+
+      window.location.href = "stand.html";
     }
 
     function rowFromItem(item) {
@@ -478,7 +632,7 @@
         }
 
         if (closing && !hasValue(row.remaining)) {
-          return `Műszak zárásához minden maradványt ki kell tölteni: ${row.productNameAtShift}`;
+          return `Stand zárásához minden maradványt ki kell tölteni: ${row.productNameAtShift}`;
         }
       }
 
@@ -514,15 +668,122 @@
       };
     }
 
+    async function propagateRemainingChanges(changes) {
+      const remainingChanges = changes.filter(change => change.field === "remaining");
+
+      if (!remainingChanges.length) return;
+
+      const q = query(collection(db, "shifts"), where("previousShiftId", "==", currentShift.id), limit(1));
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        await writeLog("next_shift_not_found_for_propagation", {
+          previousShiftId: currentShift.id,
+          changes: remainingChanges
+        });
+        return;
+      }
+
+      const nextDoc = snap.docs[0];
+      const nextShift = {
+        id: nextDoc.id,
+        ...nextDoc.data()
+      };
+
+      const itemMap = await loadShiftItems(nextShift.id);
+      const nextRows = Array.from(itemMap.values()).map(item => rowFromItem(item));
+      const propagationDetails = [];
+
+      remainingChanges.forEach(change => {
+        const nextRow = nextRows.find(row => row.productId === change.productId);
+
+        if (!nextRow) return;
+
+        const beforeOpeningAuto = toNumber(nextRow.openingAuto);
+        const beforeOpeningFinal = toNumber(nextRow.openingFinal);
+        const newOpening = toNumber(change.after);
+
+        nextRow.openingAuto = newOpening;
+        nextRow.openingFinal = newOpening;
+        nextRow.openingChangeNote = "";
+
+        propagationDetails.push({
+          productId: change.productId,
+          productName: change.productName,
+          nextShiftId: nextShift.id,
+          beforeOpeningAuto,
+          beforeOpeningFinal,
+          afterOpening: newOpening
+        });
+      });
+
+      if (!propagationDetails.length) return;
+
+      const totalSalesValue = nextRows.reduce((sum, row) => sum + calc(row).salesValue, 0);
+      const totalPurchaseValue = nextRows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
+      const totalMarginValue = totalSalesValue - totalPurchaseValue;
+      const batch = writeBatch(db);
+
+      propagationDetails.forEach(detail => {
+        const row = nextRows.find(item => item.productId === detail.productId);
+        const itemRef = doc(db, "shifts", nextShift.id, "items", detail.productId);
+
+        batch.set(itemRef, itemDataFromRow(row), { merge: true });
+      });
+
+      const nextShiftUpdate = {
+        totalSalesValue,
+        totalPurchaseValue,
+        totalMarginValue,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name,
+        openingUpdatedFromPreviousShift: true,
+        openingUpdatedFromPreviousShiftAt: serverTimestamp(),
+        openingUpdatedFromPreviousShiftBy: currentUser.uid,
+        openingUpdatedFromPreviousShiftByName: currentUserData.name
+      };
+
+      if (nextShift.status === "closed") {
+        nextShiftUpdate.modifiedAfterClose = true;
+        nextShiftUpdate.lastModifiedAfterCloseAt = serverTimestamp();
+        nextShiftUpdate.lastModifiedAfterCloseBy = currentUser.uid;
+        nextShiftUpdate.lastModifiedAfterCloseByName = currentUserData.name;
+      }
+
+      batch.set(doc(db, "shifts", nextShift.id), nextShiftUpdate, { merge: true });
+
+      const logRef = doc(collection(db, "logs"));
+      batch.set(logRef, {
+        action: "next_shift_opening_updated_from_previous_edit",
+        details: {
+          previousShiftId: currentShift.id,
+          previousShiftLabel: currentShift.shiftLabel || "",
+          nextShiftId: nextShift.id,
+          nextShiftLabel: nextShift.shiftLabel || "",
+          propagationDetails,
+          totalSalesValue,
+          totalPurchaseValue,
+          totalMarginValue
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+    }
+
     async function saveDraft() {
-      const error = validateRows(false);
+      const closed = isClosedShift();
+      const error = validateRows(closed);
 
       if (error) {
         showMessage(error, true);
         return;
       }
 
-      const closed = isClosedShift();
       const changes = closed ? findChanges() : [];
 
       if (closed && !changes.length) {
@@ -589,19 +850,21 @@
 
         showMessage("Piszkozat mentve.");
       } else {
+        await propagateRemainingChanges(changes);
+
         currentShift = {
           ...currentShift,
           ...shiftUpdate
         };
 
         setOriginalRows();
-        showMessage("Lezárt stand módosítása mentve és naplózva.");
+        showMessage("Lezárt stand módosítása mentve, naplózva, a következő stand nyitója frissítve.");
       }
     }
 
     async function closeShift() {
       if (isClosedShift()) {
-        showMessage("Ez a műszak már lezárt. A módosítás mentéséhez használd a mentés gombot.", true);
+        showMessage("Ez a stand már lezárt. A módosítás mentéséhez használd a mentés gombot.", true);
         return;
       }
 
@@ -612,14 +875,13 @@
         return;
       }
 
-      const confirmClose = confirm("Biztosan lezárod a műszakot? Lezárás után automatikusan elindul a következő műszak.");
+      const confirmClose = confirm("Biztosan lezárod a standot? Új stand nem nyílik automatikusan, azt külön kell megnyitni.");
 
       if (!confirmClose) return;
 
       const totalSalesValue = rows.reduce((sum, row) => sum + calc(row).salesValue, 0);
       const totalPurchaseValue = rows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
       const totalMarginValue = totalSalesValue - totalPurchaseValue;
-      const nextShiftRef = doc(collection(db, "shifts"));
       const batch = writeBatch(db);
 
       rows.forEach(row => {
@@ -637,47 +899,6 @@
         totalMarginValue,
         updatedAt: serverTimestamp()
       }, { merge: true });
-
-      batch.set(nextShiftRef, {
-        status: "open",
-        shiftLabel: `Műszak ${new Date().toLocaleString("hu-HU")}`,
-        openedAt: serverTimestamp(),
-        openedBy: currentUser.uid,
-        openedByName: currentUserData.name,
-        previousShiftId: currentShift.id,
-        totalSalesValue: 0,
-        totalPurchaseValue: 0,
-        totalMarginValue: 0,
-        createdAt: serverTimestamp()
-      });
-
-      rows.forEach(row => {
-        const c = calc(row);
-        const nextItemRef = doc(db, "shifts", nextShiftRef.id, "items", row.productId);
-
-        batch.set(nextItemRef, {
-          productId: row.productId,
-          productNameAtShift: row.productNameAtShift,
-          unitAtShift: row.unitAtShift,
-          categoryAtShift: row.categoryAtShift,
-          sortOrderAtShift: row.sortOrderAtShift,
-          openingAuto: c.remaining,
-          openingFinal: c.remaining,
-          openingChangeNote: "",
-          openingChanged: false,
-          received: 0,
-          total: c.remaining,
-          remaining: "",
-          consumption: 0,
-          currentStock: c.remaining,
-          salePriceAtShift: toNumber(row.salePriceAtShift),
-          purchasePriceAtShift: toNumber(row.purchasePriceAtShift),
-          salesValue: 0,
-          purchaseValue: 0,
-          marginValue: 0,
-          updatedAt: serverTimestamp()
-        });
-      });
 
       rows.forEach(row => {
         if (openingChanged(row)) {
@@ -705,7 +926,10 @@
         action: "shift_closed",
         details: {
           shiftId: currentShift.id,
-          nextShiftId: nextShiftRef.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          businessDate: currentShift.businessDate || "",
+          assignedUserId: currentShift.assignedUserId || "",
+          assignedUserName: currentShift.assignedUserName || "",
           totalSalesValue,
           totalPurchaseValue,
           totalMarginValue
@@ -718,8 +942,7 @@
 
       await batch.commit();
 
-      showMessage("Műszak lezárva, új műszak elindítva.");
-      await loadPage();
+      window.location.href = `stand.html?shiftId=${encodeURIComponent(currentShift.id)}`;
     }
 
     standBody.addEventListener("input", (event) => {
@@ -737,27 +960,53 @@
     saveDraftBtn.addEventListener("click", saveDraft);
     closeShiftBtn.addEventListener("click", closeShift);
     searchInput.addEventListener("input", renderRows);
+    openShiftBtn.addEventListener("click", openNewShift);
 
     function updateHeader() {
       if (!currentShift) return;
 
-      const shiftName = currentShift.shiftLabel || "Műszak";
+      const shiftName = currentShift.shiftLabel || "Stand";
+      const standOwner = currentShift.assignedUserName || "-";
+      const businessDate = currentShift.businessDate ? formatBusinessDate(currentShift.businessDate) : "-";
+
+      openShiftPanel.style.display = "none";
+      standTablePanel.style.display = "";
+      standActions.style.display = "";
 
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
-        shiftInfo.textContent = `${shiftName} - lezárva: ${formatDate(currentShift.closedAt)} - lezárta: ${currentShift.closedByName || "-"}`;
+        shiftInfo.textContent = `${shiftName} - dátum: ${businessDate} - stand: ${standOwner} - lezárta: ${currentShift.closedByName || "-"} - lezárva: ${formatDateTime(currentShift.closedAt)}`;
         saveDraftBtn.textContent = "Módosítás mentése naplózva";
         closeShiftBtn.style.display = "none";
       } else {
-        shiftTitle.textContent = "Aktuális műszak";
-        shiftInfo.textContent = `${shiftName} - nyitva`;
+        shiftTitle.textContent = "Aktuális stand";
+        shiftInfo.textContent = `${shiftName} - dátum: ${businessDate} - stand: ${standOwner} - nyitotta: ${currentShift.openedByName || "-"}`;
         saveDraftBtn.textContent = "Piszkozat mentése";
         closeShiftBtn.style.display = "";
       }
     }
 
+    function showNoOpenShift() {
+      currentShift = null;
+      rows = [];
+      originalRows = [];
+      shiftTitle.textContent = "Nincs nyitott stand";
+      shiftInfo.textContent = "Új stand nyitásához töltsd ki a dátumot és válaszd ki, kié a stand.";
+      totalSales.textContent = "0 Ft";
+      openShiftPanel.style.display = "";
+      standTablePanel.style.display = "none";
+      standActions.style.display = "none";
+      standBody.innerHTML = "";
+      shiftDate.value = getTodayInputDate();
+
+      if (currentUser && users.some(user => user.id === currentUser.uid)) {
+        assignedUserSelect.value = currentUser.uid;
+      }
+    }
+
     async function loadPage() {
       showMessage("");
+      await loadUsers();
       products = await loadProductsCached();
 
       if (shiftIdFromUrl) {
@@ -780,7 +1029,11 @@
       }
 
       if (!products.length) {
-        shiftInfo.textContent = "Nincs aktív termék. Először vigyél fel termékeket a terméklistában.";
+        shiftTitle.textContent = "Nincs aktív termék";
+        shiftInfo.textContent = "Először vigyél fel termékeket a terméklistában.";
+        openShiftPanel.style.display = "none";
+        standTablePanel.style.display = "none";
+        standActions.style.display = "none";
         rows = [];
         renderRows();
         return;
@@ -789,7 +1042,8 @@
       currentShift = await getOpenShift();
 
       if (!currentShift) {
-        currentShift = await createInitialShift();
+        showNoOpenShift();
+        return;
       }
 
       updateHeader();
