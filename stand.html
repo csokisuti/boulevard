@@ -55,8 +55,60 @@
         <button id="closeShiftBtn" class="danger-btn">Stand lezárása</button>
       </div>
 
+      <div id="productSyncPanel" class="sync-panel" style="display:none;">
+        <div>
+          <strong>Terméklista változott</strong>
+          <span id="productSyncText">A nyitott stand nem a legfrissebb terméklistából dolgozik.</span>
+        </div>
+        <button id="applyProductUpdatesBtn">Frissítés alkalmazása a nyitott standra</button>
+      </div>
+
       <div id="message"></div>
     </section>
+
+    <details class="panel collapsible-panel" id="quickProductDetails" style="display:none;">
+      <summary>+ Új termék felvitele stand közben</summary>
+
+      <div class="form-grid">
+        <div>
+          <label for="quickName">Terméknév</label>
+          <input id="quickName" type="text">
+        </div>
+
+        <div>
+          <label for="quickCategory">Kategória</label>
+          <select id="quickCategory"></select>
+        </div>
+
+        <div>
+          <label for="quickNewCategory">Új kategória, ha nincs a listában</label>
+          <input id="quickNewCategory" type="text" placeholder="csak ha új kategória kell">
+        </div>
+
+        <div>
+          <label for="quickUnit">Mértékegység</label>
+          <select id="quickUnit">
+            <option value="db">db</option>
+            <option value="liter">liter</option>
+            <option value="számoló">számoló</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="quickSalePrice">Eladási ár</label>
+          <input id="quickSalePrice" type="number" min="0">
+        </div>
+
+        <div id="quickPurchasePriceBox">
+          <label for="quickPurchasePrice">Beszerzési ár</label>
+          <input id="quickPurchasePrice" type="number" min="0">
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="quickAddProductBtn">Termék mentése és hozzáadása ehhez a standhoz</button>
+      </div>
+    </details>
 
     <section class="panel" id="standTablePanel">
       <div class="table-wrapper">
@@ -85,7 +137,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, addDoc, serverTimestamp, query, where, limit, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
     const userInfo = document.getElementById("userInfo");
     const shiftInfo = document.getElementById("shiftInfo");
@@ -103,6 +155,18 @@
     const shiftDate = document.getElementById("shiftDate");
     const assignedUserSelect = document.getElementById("assignedUserSelect");
     const openShiftBtn = document.getElementById("openShiftBtn");
+    const productSyncPanel = document.getElementById("productSyncPanel");
+    const productSyncText = document.getElementById("productSyncText");
+    const applyProductUpdatesBtn = document.getElementById("applyProductUpdatesBtn");
+    const quickProductDetails = document.getElementById("quickProductDetails");
+    const quickName = document.getElementById("quickName");
+    const quickCategory = document.getElementById("quickCategory");
+    const quickNewCategory = document.getElementById("quickNewCategory");
+    const quickUnit = document.getElementById("quickUnit");
+    const quickSalePrice = document.getElementById("quickSalePrice");
+    const quickPurchasePrice = document.getElementById("quickPurchasePrice");
+    const quickPurchasePriceBox = document.getElementById("quickPurchasePriceBox");
+    const quickAddProductBtn = document.getElementById("quickAddProductBtn");
 
     const params = new URLSearchParams(window.location.search);
     const shiftIdFromUrl = params.get("shiftId");
@@ -110,8 +174,10 @@
     let currentUser = null;
     let currentUserData = null;
     let currentShift = null;
+    let currentCatalogVersion = "0";
     let products = [];
     let users = [];
+    let categories = [];
     let rows = [];
     let originalRows = [];
     let collapsedCategories = {};
@@ -169,6 +235,10 @@
         .replace(/'/g, "&#039;");
     }
 
+    function isAdmin() {
+      return currentUserData && currentUserData.role === "admin";
+    }
+
     function showMessage(text, error = false) {
       message.textContent = text;
       message.style.color = error ? "#b91c1c" : "#047857";
@@ -176,6 +246,10 @@
 
     function isClosedShift() {
       return currentShift && currentShift.status === "closed";
+    }
+
+    function isOpenShift() {
+      return currentShift && currentShift.status === "open";
     }
 
     function isCounterUnit(row) {
@@ -263,6 +337,34 @@
       });
     }
 
+    async function loadCatalogVersion() {
+      const catalogSnap = await getDoc(doc(db, "settings", "catalog"));
+      currentCatalogVersion = catalogSnap.exists() ? String(catalogSnap.data().version || "0") : "0";
+      return currentCatalogVersion;
+    }
+
+    async function updateCatalogVersion(batch = null) {
+      const version = Date.now();
+      currentCatalogVersion = String(version);
+      const ref = doc(db, "settings", "catalog");
+      const data = {
+        version,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      };
+
+      if (batch) {
+        batch.set(ref, data, { merge: true });
+      } else {
+        await setDoc(ref, data, { merge: true });
+      }
+
+      localStorage.removeItem("boulevardProductsCacheV1");
+
+      return String(version);
+    }
+
     async function loadUsers() {
       const snap = await getDocs(collection(db, "users"));
       users = [];
@@ -280,6 +382,38 @@
 
       users.sort((a, b) => String(a.name || a.email || "").localeCompare(String(b.name || b.email || ""), "hu"));
       renderUserSelect();
+    }
+
+    async function loadCategories() {
+      const categoriesQuery = query(collection(db, "categories"), orderBy("name"));
+      const snap = await getDocs(categoriesQuery);
+
+      categories = [];
+      snap.forEach(item => {
+        categories.push({
+          id: item.id,
+          ...item.data()
+        });
+      });
+
+      categories.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      renderQuickCategoryOptions();
+    }
+
+    function renderQuickCategoryOptions() {
+      quickCategory.innerHTML = "";
+
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "Nincs kategória";
+      quickCategory.appendChild(emptyOption);
+
+      categories.forEach(category => {
+        const option = document.createElement("option");
+        option.value = category.name;
+        option.textContent = category.name;
+        quickCategory.appendChild(option);
+      });
     }
 
     function renderUserSelect() {
@@ -302,21 +436,8 @@
       }
     }
 
-    async function loadProductsCached() {
-      const catalogSnap = await getDoc(doc(db, "settings", "catalog"));
-      const version = catalogSnap.exists() ? String(catalogSnap.data().version || "0") : "0";
-      const cacheRaw = localStorage.getItem("boulevardProductsCacheV1");
-
-      if (cacheRaw) {
-        try {
-          const cache = JSON.parse(cacheRaw);
-          if (cache.version === version && Array.isArray(cache.products)) {
-            return cache.products;
-          }
-        } catch (error) {
-          localStorage.removeItem("boulevardProductsCacheV1");
-        }
-      }
+    async function loadProductsFresh() {
+      await loadCatalogVersion();
 
       const snap = await getDocs(collection(db, "products"));
       const loadedProducts = [];
@@ -338,11 +459,29 @@
       });
 
       localStorage.setItem("boulevardProductsCacheV1", JSON.stringify({
-        version,
+        version: currentCatalogVersion,
         products: loadedProducts
       }));
 
       return loadedProducts;
+    }
+
+    async function loadProductsCached() {
+      const version = await loadCatalogVersion();
+      const cacheRaw = localStorage.getItem("boulevardProductsCacheV1");
+
+      if (cacheRaw) {
+        try {
+          const cache = JSON.parse(cacheRaw);
+          if (cache.version === version && Array.isArray(cache.products)) {
+            return cache.products;
+          }
+        } catch (error) {
+          localStorage.removeItem("boulevardProductsCacheV1");
+        }
+      }
+
+      return await loadProductsFresh();
     }
 
     async function getOpenShift() {
@@ -401,6 +540,32 @@
       return map;
     }
 
+    function productShiftItemData(product, opening = 0) {
+      return {
+        productId: product.id,
+        productNameAtShift: product.name || "",
+        unitAtShift: product.unit || "db",
+        categoryAtShift: product.category || "",
+        sortOrderAtShift: product.sortOrder || 0,
+        openingAuto: opening,
+        openingFinal: opening,
+        openingChangeNote: "",
+        openingChanged: false,
+        received: 0,
+        receivedNote: "",
+        total: opening,
+        remaining: "",
+        consumption: 0,
+        currentStock: opening,
+        salePriceAtShift: product.salePrice || 0,
+        purchasePriceAtShift: product.purchasePrice || 0,
+        salesValue: 0,
+        purchaseValue: 0,
+        marginValue: 0,
+        updatedAt: serverTimestamp()
+      };
+    }
+
     async function openNewShift() {
       const selectedDate = shiftDate.value;
       const assignedUserId = assignedUserSelect.value;
@@ -428,6 +593,8 @@
         return;
       }
 
+      await loadCatalogVersion();
+
       const previousShift = await getLastClosedShift();
       const previousItems = previousShift ? await loadShiftItems(previousShift.id) : new Map();
       const shiftRef = doc(collection(db, "shifts"));
@@ -440,6 +607,7 @@
         businessDate: selectedDate,
         assignedUserId: assignedUser.id,
         assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
+        catalogVersionAtOpen: currentCatalogVersion,
         openedAt: serverTimestamp(),
         openedBy: currentUser.uid,
         openedByName: currentUserData.name,
@@ -461,29 +629,7 @@
         const opening = previousItem ? toNumber(previousItem.remaining) : 0;
         const itemRef = doc(db, "shifts", shiftRef.id, "items", product.id);
 
-        batch.set(itemRef, {
-          productId: product.id,
-          productNameAtShift: product.name || "",
-          unitAtShift: product.unit || "db",
-          categoryAtShift: product.category || "",
-          sortOrderAtShift: product.sortOrder || 0,
-          openingAuto: opening,
-          openingFinal: opening,
-          openingChangeNote: "",
-          openingChanged: false,
-          received: 0,
-          receivedNote: "",
-          total: opening,
-          remaining: "",
-          consumption: 0,
-          currentStock: opening,
-          salePriceAtShift: product.salePrice || 0,
-          purchasePriceAtShift: product.purchasePrice || 0,
-          salesValue: 0,
-          purchaseValue: 0,
-          marginValue: 0,
-          updatedAt: serverTimestamp()
-        });
+        batch.set(itemRef, productShiftItemData(product, opening));
       });
 
       const logRef = doc(collection(db, "logs"));
@@ -548,10 +694,10 @@
 
         return {
           productId: product.id,
-          productNameAtShift: product.name || item?.productNameAtShift || "",
-          unitAtShift: product.unit || item?.unitAtShift || "db",
-          categoryAtShift: product.category || item?.categoryAtShift || "",
-          sortOrderAtShift: product.sortOrder || item?.sortOrderAtShift || 0,
+          productNameAtShift: item?.productNameAtShift || product.name || "",
+          unitAtShift: item?.unitAtShift || product.unit || "db",
+          categoryAtShift: item?.categoryAtShift || product.category || "",
+          sortOrderAtShift: item?.sortOrderAtShift || product.sortOrder || 0,
           openingAuto: item?.openingAuto ?? 0,
           openingFinal: item?.openingFinal ?? item?.openingAuto ?? 0,
           openingChangeNote: item?.openingChangeNote || "",
@@ -563,6 +709,12 @@
           adminReviewNeeded: product.adminReviewNeeded || false,
           unlockedFields: {}
         };
+      });
+
+      Array.from(itemMap.values()).forEach(item => {
+        if (!products.some(product => product.id === item.productId)) {
+          rows.push(rowFromItem(item));
+        }
       });
 
       sortRowsForStand();
@@ -1152,6 +1304,203 @@
       window.location.href = `stand.html?shiftId=${encodeURIComponent(currentShift.id)}`;
     }
 
+    async function quickAddProduct() {
+      if (!isOpenShift()) {
+        showMessage("Új terméket csak nyitott standhoz lehet így hozzáadni.", true);
+        return;
+      }
+
+      const name = quickName.value.trim();
+      const newCategory = quickNewCategory.value.trim();
+      const category = newCategory || quickCategory.value.trim();
+      const unit = quickUnit.value || "db";
+      const salePrice = toNumber(quickSalePrice.value);
+      const purchasePrice = isAdmin() ? toNumber(quickPurchasePrice.value) : 0;
+
+      if (!name) {
+        showMessage("A terméknév kötelező.", true);
+        return;
+      }
+
+      if (salePrice < 0) {
+        showMessage("Az eladási ár nem lehet negatív.", true);
+        return;
+      }
+
+      const batch = writeBatch(db);
+      const productRef = doc(collection(db, "products"));
+      const product = {
+        id: productRef.id,
+        name,
+        category,
+        unit,
+        salePrice,
+        purchasePrice,
+        active: true,
+        sortOrder: Date.now(),
+        adminReviewNeeded: !isAdmin(),
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.uid,
+        createdByName: currentUserData.name,
+        createdFrom: "stand",
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      };
+
+      batch.set(productRef, product);
+
+      if (newCategory && !categories.some(item => String(item.name || "").toLowerCase() === newCategory.toLowerCase())) {
+        const categoryRef = doc(collection(db, "categories"));
+        batch.set(categoryRef, {
+          name: newCategory,
+          createdAt: serverTimestamp(),
+          createdBy: currentUser.uid,
+          createdByName: currentUserData.name
+        });
+      }
+
+      const newVersion = await updateCatalogVersion(batch);
+      const itemRef = doc(db, "shifts", currentShift.id, "items", productRef.id);
+      batch.set(itemRef, productShiftItemData(product, 0));
+
+      batch.set(doc(db, "shifts", currentShift.id), {
+        catalogVersionAtOpen: newVersion,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      const logRef = doc(collection(db, "logs"));
+      batch.set(logRef, {
+        action: "product_created_from_stand",
+        details: {
+          shiftId: currentShift.id,
+          productId: productRef.id,
+          productName: name,
+          category,
+          unit,
+          salePrice,
+          purchasePrice: isAdmin() ? purchasePrice : null
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+
+      quickName.value = "";
+      quickNewCategory.value = "";
+      quickUnit.value = "db";
+      quickSalePrice.value = "";
+      quickPurchasePrice.value = "";
+      quickProductDetails.open = false;
+
+      showMessage("Új termék felvéve és hozzáadva az aktuális standhoz.");
+
+      await loadPage();
+    }
+
+    async function checkProductSyncNeeded() {
+      productSyncPanel.style.display = "none";
+
+      if (!isOpenShift()) return;
+
+      const version = await loadCatalogVersion();
+      const shiftVersion = String(currentShift.catalogVersionAtOpen || "0");
+
+      if (version !== shiftVersion) {
+        productSyncPanel.style.display = "";
+        productSyncText.textContent = "A terméklista változott. A frissítés csak ezt a nyitott standot módosítja, lezárt standokat nem.";
+      }
+    }
+
+    async function applyProductUpdatesToOpenShift() {
+      if (!isOpenShift()) {
+        showMessage("Csak nyitott standra alkalmazható terméklista-frissítés.", true);
+        return;
+      }
+
+      const freshProducts = await loadProductsFresh();
+      const itemMap = await loadShiftItems(currentShift.id);
+      const batch = writeBatch(db);
+      const changes = [];
+      const added = [];
+
+      freshProducts.forEach(product => {
+        const item = itemMap.get(product.id);
+        const itemRef = doc(db, "shifts", currentShift.id, "items", product.id);
+
+        if (!item) {
+          batch.set(itemRef, productShiftItemData(product, 0));
+          added.push({
+            productId: product.id,
+            productName: product.name || ""
+          });
+          return;
+        }
+
+        const update = {
+          productNameAtShift: product.name || item.productNameAtShift || "",
+          unitAtShift: product.unit || item.unitAtShift || "db",
+          categoryAtShift: product.category || item.categoryAtShift || "",
+          sortOrderAtShift: product.sortOrder || item.sortOrderAtShift || 0,
+          salePriceAtShift: product.salePrice ?? item.salePriceAtShift ?? 0,
+          purchasePriceAtShift: product.purchasePrice ?? item.purchasePriceAtShift ?? 0,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        };
+
+        const productChanges = [];
+
+        if (String(item.productNameAtShift || "") !== String(update.productNameAtShift || "")) productChanges.push({ field: "név", before: item.productNameAtShift || "", after: update.productNameAtShift || "" });
+        if (String(item.categoryAtShift || "") !== String(update.categoryAtShift || "")) productChanges.push({ field: "kategória", before: item.categoryAtShift || "", after: update.categoryAtShift || "" });
+        if (String(item.unitAtShift || "") !== String(update.unitAtShift || "")) productChanges.push({ field: "mértékegység", before: item.unitAtShift || "", after: update.unitAtShift || "" });
+        if (toNumber(item.salePriceAtShift) !== toNumber(update.salePriceAtShift)) productChanges.push({ field: "eladási ár", before: toNumber(item.salePriceAtShift), after: toNumber(update.salePriceAtShift) });
+
+        if (productChanges.length) {
+          changes.push({
+            productId: product.id,
+            productName: product.name || "",
+            changes: productChanges
+          });
+        }
+
+        batch.set(itemRef, update, { merge: true });
+      });
+
+      batch.set(doc(db, "shifts", currentShift.id), {
+        catalogVersionAtOpen: currentCatalogVersion,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      const logRef = doc(collection(db, "logs"));
+      batch.set(logRef, {
+        action: "open_shift_product_updates_applied",
+        details: {
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          catalogVersion: currentCatalogVersion,
+          added,
+          changes
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+
+      showMessage("Terméklista-frissítés alkalmazva a nyitott standra.");
+      await loadPage();
+    }
+
     standBody.addEventListener("input", (event) => {
       const input = event.target.closest("input");
       if (!input || input.disabled) return;
@@ -1222,6 +1571,8 @@
     closeShiftBtn.addEventListener("click", closeShift);
     searchInput.addEventListener("input", renderRows);
     openShiftBtn.addEventListener("click", openNewShift);
+    quickAddProductBtn.addEventListener("click", quickAddProduct);
+    applyProductUpdatesBtn.addEventListener("click", applyProductUpdatesToOpenShift);
 
     function updateHeader() {
       if (!currentShift) return;
@@ -1233,12 +1584,15 @@
       openShiftPanel.style.display = "none";
       standTablePanel.style.display = "";
       standActions.style.display = "";
+      quickProductDetails.style.display = isOpenShift() ? "" : "none";
+      quickPurchasePriceBox.style.display = isAdmin() ? "" : "none";
 
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
         shiftInfo.textContent = `${shiftName} - dátum: ${businessDate} - stand: ${standOwner} - lezárta: ${currentShift.closedByName || "-"} - lezárva: ${formatDateTime(currentShift.closedAt)}`;
         saveDraftBtn.textContent = "Módosítás mentése naplózva";
         closeShiftBtn.style.display = "none";
+        productSyncPanel.style.display = "none";
       } else {
         shiftTitle.textContent = "Aktuális stand";
         shiftInfo.textContent = `${shiftName} - dátum: ${businessDate} - stand: ${standOwner} - nyitotta: ${currentShift.openedByName || "-"}`;
@@ -1257,6 +1611,8 @@
       openShiftPanel.style.display = "";
       standTablePanel.style.display = "none";
       standActions.style.display = "none";
+      quickProductDetails.style.display = "none";
+      productSyncPanel.style.display = "none";
       standBody.innerHTML = "";
       shiftDate.value = getTodayInputDate();
 
@@ -1268,6 +1624,7 @@
     async function loadPage() {
       showMessage("");
       await loadUsers();
+      await loadCategories();
       products = await loadProductsCached();
 
       if (shiftIdFromUrl) {
@@ -1286,6 +1643,7 @@
         mergeRows(itemMap);
         setOriginalRows();
         renderRows();
+        await checkProductSyncNeeded();
         return;
       }
 
@@ -1295,6 +1653,8 @@
         openShiftPanel.style.display = "none";
         standTablePanel.style.display = "none";
         standActions.style.display = "none";
+        quickProductDetails.style.display = "none";
+        productSyncPanel.style.display = "none";
         rows = [];
         renderRows();
         return;
@@ -1313,6 +1673,7 @@
       mergeRows(itemMap);
       setOriginalRows();
       renderRows();
+      await checkProductSyncNeeded();
     }
 
     onAuthStateChanged(auth, async (user) => {
