@@ -308,6 +308,10 @@ input:disabled {
   background: #fff7ed;
 }
 
+.negative-received-row {
+  background: #fef2f2;
+}
+
 .mini-badge {
   display: inline-block;
   margin-left: 8px;
@@ -349,7 +353,11 @@ input:disabled {
 }
 
 .stand-table {
-  min-width: 1250px;
+  min-width: 1450px;
+}
+
+.products-table {
+  min-width: 1100px;
 }
 
 .small-link-btn {
@@ -517,6 +525,24 @@ input:disabled {
 
 .passive-panel {
   border: 1px solid #e5e7eb;
+}
+
+.stock-badge {
+  display: inline-block;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #047857;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.muted-cell {
+  color: #9ca3af;
+}
+
+.received-note-input {
+  width: 220px;
 }
 
 @media (max-width: 700px) {
