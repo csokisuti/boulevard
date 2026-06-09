@@ -162,6 +162,8 @@ button:hover {
   display: flex;
   gap: 12px;
   margin-top: 22px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .button-row button {
@@ -246,7 +248,8 @@ button:hover {
 }
 
 .disabled-input,
-input:disabled {
+input:disabled,
+button:disabled {
   background: #f3f4f6;
   color: #9ca3af;
   cursor: not-allowed;
@@ -358,6 +361,14 @@ input:disabled {
 
 .products-table {
   min-width: 1100px;
+}
+
+.debts-table {
+  min-width: 1150px;
+}
+
+.finance-table {
+  min-width: 850px;
 }
 
 .small-link-btn {
@@ -578,6 +589,66 @@ input:disabled {
   background: #78350f;
 }
 
+.finance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin: 22px 24px 0;
+}
+
+.finance-card {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.finance-card span {
+  display: block;
+  color: #6b7280;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.finance-card strong {
+  font-size: 20px;
+}
+
+.finance-card.positive strong {
+  color: #047857;
+}
+
+.finance-card.negative strong {
+  color: #b91c1c;
+}
+
+.finance-card.total {
+  background: #111827;
+  color: white;
+}
+
+.finance-card.total span {
+  color: #d1d5db;
+}
+
+.finance-section {
+  margin-top: 24px;
+}
+
+.positive-text {
+  color: #047857;
+  font-weight: bold;
+}
+
+.negative-text {
+  color: #b91c1c;
+  font-weight: bold;
+}
+
+.debt-payment-input {
+  width: 120px;
+}
+
 @media (max-width: 700px) {
   .topbar {
     align-items: flex-start;
@@ -623,5 +694,10 @@ input:disabled {
   .category-chip {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .finance-summary-grid {
+    margin-left: 16px;
+    margin-right: 16px;
   }
 }
