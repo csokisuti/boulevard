@@ -251,11 +251,18 @@
     }
 
     async function updateCatalogVersion() {
+      const version = Date.now();
+
       await setDoc(doc(db, "settings", "catalog"), {
-        version: Date.now(),
-        updatedAt: serverTimestamp()
+        version,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
       }, { merge: true });
+
       localStorage.removeItem("boulevardProductsCacheV1");
+
+      return String(version);
     }
 
     function sortProductsForDisplay(products) {
