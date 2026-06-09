@@ -69,7 +69,7 @@
               <th>Nyitó megj.</th>
               <th>Vételezés</th>
               <th>Összesen</th>
-              <th>Maradvány</th>
+              <th>Maradvány / záró</th>
               <th>Fogyás</th>
               <th>Készlet most</th>
               <th>Egységár</th>
@@ -128,7 +128,7 @@
     }
 
     function toNumber(value) {
-      const n = Number(String(value ?? "0").replace(",", "."));
+      const n = Number(String(value ?? "0").replace(/,/g, "."));
       return Number.isFinite(n) ? n : 0;
     }
 
@@ -138,6 +138,11 @@
 
     function formatMoney(value) {
       return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function formatNumber(value) {
+      const n = Number(value || 0);
+      return Number.isInteger(n) ? String(n) : String(n).replace(".", ",");
     }
 
     function formatDateTime(value) {
@@ -171,11 +176,41 @@
       return currentShift && currentShift.status === "closed";
     }
 
+    function isCounterUnit(row) {
+      return String(row.unitAtShift || "").trim().toLowerCase() === "számoló";
+    }
+
+    function categoryName(row) {
+      return String(row.categoryAtShift || "Egyéb").trim() || "Egyéb";
+    }
+
     function calc(row) {
       const opening = toNumber(row.openingFinal);
       const received = toNumber(row.received);
-      const total = opening + received;
       const remaining = hasValue(row.remaining) ? toNumber(row.remaining) : null;
+      const counter = isCounterUnit(row);
+
+      if (counter) {
+        const consumption = remaining === null ? 0 : remaining - opening;
+        const currentStock = remaining === null ? opening : remaining;
+        const salesValue = consumption * toNumber(row.salePriceAtShift);
+        const purchaseValue = consumption * toNumber(row.purchasePriceAtShift);
+        const marginValue = salesValue - purchaseValue;
+
+        return {
+          opening,
+          received: 0,
+          total: opening,
+          remaining,
+          consumption,
+          currentStock,
+          salesValue,
+          purchaseValue,
+          marginValue
+        };
+      }
+
+      const total = opening + received;
       const consumption = remaining === null ? 0 : total - remaining;
       const currentStock = remaining === null ? total : remaining;
       const salesValue = consumption * toNumber(row.salePriceAtShift);
@@ -278,7 +313,11 @@
         }
       });
 
-      loadedProducts.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      loadedProducts.sort((a, b) => {
+        const categoryCompare = String(a.category || "Egyéb").localeCompare(String(b.category || "Egyéb"), "hu");
+        if (categoryCompare !== 0) return categoryCompare;
+        return (a.sortOrder || 0) - (b.sortOrder || 0);
+      });
 
       localStorage.setItem("boulevardProductsCacheV1", JSON.stringify({
         version,
@@ -326,7 +365,7 @@
 
       return {
         id: item.id,
-        ...data
+        ...data()
       };
     }
 
@@ -468,10 +507,18 @@
       };
     }
 
+    function sortRowsForStand() {
+      rows.sort((a, b) => {
+        const categoryCompare = categoryName(a).localeCompare(categoryName(b), "hu");
+        if (categoryCompare !== 0) return categoryCompare;
+        return (a.sortOrderAtShift || 0) - (b.sortOrderAtShift || 0);
+      });
+    }
+
     function mergeRows(itemMap) {
       if (isClosedShift()) {
         rows = Array.from(itemMap.values()).map(item => rowFromItem(item));
-        rows.sort((a, b) => (a.sortOrderAtShift || 0) - (b.sortOrderAtShift || 0));
+        sortRowsForStand();
         return;
       }
 
@@ -480,9 +527,9 @@
 
         return {
           productId: product.id,
-          productNameAtShift: item?.productNameAtShift || product.name || "",
-          unitAtShift: item?.unitAtShift || product.unit || "db",
-          categoryAtShift: item?.categoryAtShift || product.category || "",
+          productNameAtShift: product.name || item?.productNameAtShift || "",
+          unitAtShift: product.unit || item?.unitAtShift || "db",
+          categoryAtShift: product.category || item?.categoryAtShift || "",
           sortOrderAtShift: product.sortOrder || item?.sortOrderAtShift || 0,
           openingAuto: item?.openingAuto ?? 0,
           openingFinal: item?.openingFinal ?? item?.openingAuto ?? 0,
@@ -495,7 +542,7 @@
         };
       });
 
-      rows.sort((a, b) => (a.sortOrderAtShift || 0) - (b.sortOrderAtShift || 0));
+      sortRowsForStand();
     }
 
     function comparableValue(field, value) {
@@ -533,7 +580,7 @@
         { key: "openingFinal", label: "Nyitó" },
         { key: "openingChangeNote", label: "Nyitó megjegyzés" },
         { key: "received", label: "Vételezés" },
-        { key: "remaining", label: "Maradvány" },
+        { key: "remaining", label: "Maradvány / záró" },
         { key: "salePriceAtShift", label: "Egységár" }
       ];
 
@@ -568,12 +615,24 @@
     function renderRows() {
       const search = searchInput.value.trim().toLowerCase();
       standBody.innerHTML = "";
+      let lastCategory = "";
 
       rows.forEach((row, index) => {
         const searchable = `${row.productNameAtShift} ${row.categoryAtShift}`.toLowerCase();
         if (search && !searchable.includes(search)) return;
 
+        const currentCategory = categoryName(row);
+
+        if (currentCategory !== lastCategory) {
+          const categoryTr = document.createElement("tr");
+          categoryTr.className = "category-row";
+          categoryTr.innerHTML = `<td colspan="11">${escapeHtml(currentCategory)}</td>`;
+          standBody.appendChild(categoryTr);
+          lastCategory = currentCategory;
+        }
+
         const c = calc(row);
+        const counter = isCounterUnit(row);
         const tr = document.createElement("tr");
         tr.dataset.index = index;
 
@@ -585,15 +644,16 @@
           <td>
             <strong>${escapeHtml(row.productNameAtShift)}</strong>
             ${row.adminReviewNeeded ? `<span class="mini-badge">ellenőrizendő</span>` : ""}
+            ${counter ? `<span class="mini-badge">számoló</span>` : ""}
           </td>
           <td>${escapeHtml(row.unitAtShift)}</td>
           <td><input class="table-input" data-field="openingFinal" value="${escapeHtml(row.openingFinal)}"></td>
           <td><input class="table-input note-input" data-field="openingChangeNote" value="${escapeHtml(row.openingChangeNote || "")}" placeholder="ha nyitót módosítasz"></td>
-          <td><input class="table-input" data-field="received" value="${escapeHtml(row.received)}"></td>
-          <td class="calc-total">${c.total}</td>
+          <td><input class="table-input ${counter ? "disabled-input" : ""}" data-field="received" value="${counter ? "" : escapeHtml(row.received)}" ${counter ? "disabled" : ""}></td>
+          <td class="calc-total">${counter ? "—" : formatNumber(c.total)}</td>
           <td><input class="table-input" data-field="remaining" value="${escapeHtml(row.remaining)}"></td>
-          <td class="calc-consumption">${c.consumption}</td>
-          <td class="calc-current">${c.currentStock}</td>
+          <td class="calc-consumption">${formatNumber(c.consumption)}</td>
+          <td class="calc-current">${formatNumber(c.currentStock)}</td>
           <td><input class="table-input price-input" data-field="salePriceAtShift" value="${escapeHtml(row.salePriceAtShift)}"></td>
           <td class="calc-sales">${formatMoney(c.salesValue)}</td>
         `;
@@ -606,9 +666,11 @@
 
     function updateRowDisplay(tr, row) {
       const c = calc(row);
-      tr.querySelector(".calc-total").textContent = c.total;
-      tr.querySelector(".calc-consumption").textContent = c.consumption;
-      tr.querySelector(".calc-current").textContent = c.currentStock;
+      const counter = isCounterUnit(row);
+
+      tr.querySelector(".calc-total").textContent = counter ? "—" : formatNumber(c.total);
+      tr.querySelector(".calc-consumption").textContent = formatNumber(c.consumption);
+      tr.querySelector(".calc-current").textContent = formatNumber(c.currentStock);
       tr.querySelector(".calc-sales").textContent = formatMoney(c.salesValue);
 
       if (openingChanged(row)) {
@@ -632,7 +694,7 @@
         }
 
         if (closing && !hasValue(row.remaining)) {
-          return `Stand zárásához minden maradványt ki kell tölteni: ${row.productNameAtShift}`;
+          return `Stand zárásához minden maradványt / zárót ki kell tölteni: ${row.productNameAtShift}`;
         }
       }
 
@@ -652,7 +714,7 @@
         openingFinal: toNumber(row.openingFinal),
         openingChangeNote: String(row.openingChangeNote || "").trim(),
         openingChanged: openingChanged(row),
-        received: toNumber(row.received),
+        received: isCounterUnit(row) ? 0 : toNumber(row.received),
         total: c.total,
         remaining: hasValue(row.remaining) ? toNumber(row.remaining) : "",
         consumption: c.consumption,
@@ -947,7 +1009,7 @@
 
     standBody.addEventListener("input", (event) => {
       const input = event.target.closest("input");
-      if (!input) return;
+      if (!input || input.disabled) return;
 
       const tr = input.closest("tr");
       const index = Number(tr.dataset.index);
