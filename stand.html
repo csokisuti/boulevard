@@ -44,7 +44,7 @@
           <p id="shiftInfo">Betöltés...</p>
         </div>
         <div class="summary-box">
-          <strong>Összes eladási érték:</strong>
+          <strong>Összes pultforgalom:</strong>
           <span id="totalSales">0 Ft</span>
         </div>
       </div>
@@ -145,8 +145,20 @@
 
       <div class="finance-summary-grid">
         <div class="finance-card">
-          <span>Termék eladás</span>
+          <span>Pultforgalom</span>
           <strong id="financeProductSales">0 Ft</strong>
+        </div>
+        <div class="finance-card negative">
+          <span>Bankkártya</span>
+          <strong id="financeCardPayment">0 Ft</strong>
+        </div>
+        <div class="finance-card positive">
+          <span>Lottó forgalom</span>
+          <strong id="financeLottoTurnover">0 Ft</strong>
+        </div>
+        <div class="finance-card negative">
+          <span>Repi</span>
+          <strong id="financeRepi">0 Ft</strong>
         </div>
         <div class="finance-card positive">
           <span>Egyéb bevétel</span>
@@ -165,49 +177,174 @@
           <strong id="financeDebtPaid">0 Ft</strong>
         </div>
         <div class="finance-card total">
-          <span>Várható pénztár</span>
+          <span>Várható készpénz</span>
           <strong id="financeExpectedCash">0 Ft</strong>
         </div>
       </div>
 
       <div id="financeFormBox">
-        <h3>Pénzmozgás rögzítése</h3>
+        <div class="finance-block">
+          <h3>Bankkártya</h3>
+          <p class="muted-cell">A bankkártyás összeg levonódik a várható készpénzből. Több nap külön rögzíthető.</p>
 
-        <div class="form-grid">
-          <div>
-            <label for="moneyType">Típus</label>
-            <select id="moneyType">
-              <option value="income">Bevétel</option>
-              <option value="expense">Kiadás</option>
-              <option value="debt_create">Új tartozás</option>
-              <option value="debt_payment">Tartozás befizetés</option>
-            </select>
+          <div class="form-grid">
+            <div>
+              <label for="cardDate">Nap</label>
+              <input id="cardDate" type="date">
+            </div>
+
+            <div>
+              <label for="cardAmount">Összeg</label>
+              <input id="cardAmount" type="number" min="0">
+            </div>
+
+            <div>
+              <label for="cardNote">Megjegyzés</label>
+              <input id="cardNote" type="text" placeholder="pl. POS zárás">
+            </div>
           </div>
 
-          <div id="debtSelectBox" style="display:none;">
-            <label for="debtSelect">Tartozás</label>
-            <select id="debtSelect"></select>
+          <div class="button-row">
+            <button id="addCardPaymentBtn">Bankkártya nap hozzáadása</button>
           </div>
 
-          <div>
-            <label for="moneyPerson">Név / partner</label>
-            <input id="moneyPerson" type="text" placeholder="pl. Gyuri">
-          </div>
-
-          <div>
-            <label for="moneyAmount">Összeg</label>
-            <input id="moneyAmount" type="number" min="0">
-          </div>
-
-          <div>
-            <label for="moneyNote">Megjegyzés</label>
-            <input id="moneyNote" type="text" placeholder="pl. tartozás, visszafizetés, beszerzés">
+          <div class="table-wrapper">
+            <table class="data-table finance-table">
+              <thead>
+                <tr>
+                  <th>Nap</th>
+                  <th>Összeg</th>
+                  <th>Hatás</th>
+                  <th>Megjegyzés</th>
+                  <th>Rögzítette</th>
+                </tr>
+              </thead>
+              <tbody id="cardPaymentsBody"></tbody>
+            </table>
           </div>
         </div>
 
-        <div class="button-row">
-          <button id="addMoneyMovementBtn">Pénzmozgás mentése</button>
-          <a class="small-link-btn" href="debts.html">Tartozások oldal</a>
+        <div class="finance-block">
+          <h3>Lottó forgalom</h3>
+          <p class="muted-cell">A lottó forgalom hozzáadódik a várható készpénzhez. Több nap külön rögzíthető.</p>
+
+          <div class="form-grid">
+            <div>
+              <label for="lottoDate">Nap</label>
+              <input id="lottoDate" type="date">
+            </div>
+
+            <div>
+              <label for="lottoAmount">Összeg</label>
+              <input id="lottoAmount" type="number" min="0">
+            </div>
+
+            <div>
+              <label for="lottoNote">Megjegyzés</label>
+              <input id="lottoNote" type="text" placeholder="pl. lottó napi zárás">
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button id="addLottoTurnoverBtn">Lottó nap hozzáadása</button>
+          </div>
+
+          <div class="table-wrapper">
+            <table class="data-table finance-table">
+              <thead>
+                <tr>
+                  <th>Nap</th>
+                  <th>Összeg</th>
+                  <th>Hatás</th>
+                  <th>Megjegyzés</th>
+                  <th>Rögzítette</th>
+                </tr>
+              </thead>
+              <tbody id="lottoTurnoverBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="finance-block">
+          <h3>Repi</h3>
+          <p class="muted-cell">A repi levonódik a várható készpénzből. Itt jelölhető, ki fogyasztott és mennyiért.</p>
+
+          <div class="form-grid">
+            <div>
+              <label for="repiPerson">Ki fogyasztott?</label>
+              <input id="repiPerson" type="text" placeholder="pl. vendég neve / dolgozó / főnök vendége">
+            </div>
+
+            <div>
+              <label for="repiAmount">Összeg</label>
+              <input id="repiAmount" type="number" min="0">
+            </div>
+
+            <div>
+              <label for="repiNote">Megjegyzés</label>
+              <input id="repiNote" type="text" placeholder="pl. kávé, üdítő, ital">
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button id="addRepiBtn">Repi mentése</button>
+          </div>
+
+          <div class="table-wrapper">
+            <table class="data-table finance-table">
+              <thead>
+                <tr>
+                  <th>Ki fogyasztott?</th>
+                  <th>Összeg</th>
+                  <th>Hatás</th>
+                  <th>Megjegyzés</th>
+                  <th>Rögzítette</th>
+                </tr>
+              </thead>
+              <tbody id="repiBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="finance-block">
+          <h3>Egyéb pénzmozgás és tartozás</h3>
+
+          <div class="form-grid">
+            <div>
+              <label for="moneyType">Típus</label>
+              <select id="moneyType">
+                <option value="income">Bevétel</option>
+                <option value="expense">Kiadás</option>
+                <option value="debt_create">Új tartozás</option>
+                <option value="debt_payment">Tartozás befizetés</option>
+              </select>
+            </div>
+
+            <div id="debtSelectBox" style="display:none;">
+              <label for="debtSelect">Tartozás</label>
+              <select id="debtSelect"></select>
+            </div>
+
+            <div>
+              <label for="moneyPerson">Név / partner</label>
+              <input id="moneyPerson" type="text" placeholder="pl. Gyuri">
+            </div>
+
+            <div>
+              <label for="moneyAmount">Összeg</label>
+              <input id="moneyAmount" type="number" min="0">
+            </div>
+
+            <div>
+              <label for="moneyNote">Megjegyzés</label>
+              <input id="moneyNote" type="text" placeholder="pl. tartozás, visszafizetés, beszerzés">
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button id="addMoneyMovementBtn">Pénzmozgás mentése</button>
+            <a class="small-link-btn" href="debts.html">Tartozások oldal</a>
+          </div>
         </div>
       </div>
 
@@ -231,12 +368,13 @@
       </div>
 
       <div class="finance-section">
-        <h3>Stand pénzmozgásai</h3>
+        <h3>Összes stand pénzmozgás</h3>
         <div class="table-wrapper">
           <table class="data-table finance-table">
             <thead>
               <tr>
                 <th>Típus</th>
+                <th>Nap</th>
                 <th>Név / partner</th>
                 <th>Összeg</th>
                 <th>Hatás</th>
@@ -287,11 +425,29 @@
     const financeDetails = document.getElementById("financeDetails");
     const financeFormBox = document.getElementById("financeFormBox");
     const financeProductSales = document.getElementById("financeProductSales");
+    const financeCardPayment = document.getElementById("financeCardPayment");
+    const financeLottoTurnover = document.getElementById("financeLottoTurnover");
+    const financeRepi = document.getElementById("financeRepi");
     const financeIncome = document.getElementById("financeIncome");
     const financeExpense = document.getElementById("financeExpense");
     const financeDebtCreated = document.getElementById("financeDebtCreated");
     const financeDebtPaid = document.getElementById("financeDebtPaid");
     const financeExpectedCash = document.getElementById("financeExpectedCash");
+    const cardDate = document.getElementById("cardDate");
+    const cardAmount = document.getElementById("cardAmount");
+    const cardNote = document.getElementById("cardNote");
+    const addCardPaymentBtn = document.getElementById("addCardPaymentBtn");
+    const cardPaymentsBody = document.getElementById("cardPaymentsBody");
+    const lottoDate = document.getElementById("lottoDate");
+    const lottoAmount = document.getElementById("lottoAmount");
+    const lottoNote = document.getElementById("lottoNote");
+    const addLottoTurnoverBtn = document.getElementById("addLottoTurnoverBtn");
+    const lottoTurnoverBody = document.getElementById("lottoTurnoverBody");
+    const repiPerson = document.getElementById("repiPerson");
+    const repiAmount = document.getElementById("repiAmount");
+    const repiNote = document.getElementById("repiNote");
+    const addRepiBtn = document.getElementById("addRepiBtn");
+    const repiBody = document.getElementById("repiBody");
     const moneyType = document.getElementById("moneyType");
     const debtSelectBox = document.getElementById("debtSelectBox");
     const debtSelect = document.getElementById("debtSelect");
@@ -417,14 +573,20 @@
       if (type === "expense") return -amount;
       if (type === "debt_create") return -amount;
       if (type === "debt_payment") return amount;
+      if (type === "card_payment") return -amount;
+      if (type === "lotto_turnover") return amount;
+      if (type === "repi") return -amount;
       return 0;
     }
 
     function movementTypeLabel(type) {
-      if (type === "income") return "Bevétel";
-      if (type === "expense") return "Kiadás";
+      if (type === "income") return "Egyéb bevétel";
+      if (type === "expense") return "Egyéb kiadás";
       if (type === "debt_create") return "Új tartozás";
       if (type === "debt_payment") return "Tartozás befizetés";
+      if (type === "card_payment") return "Bankkártya";
+      if (type === "lotto_turnover") return "Lottó forgalom";
+      if (type === "repi") return "Repi";
       return type || "-";
     }
 
@@ -850,6 +1012,9 @@
         totalMoneyExpense: 0,
         totalDebtCreated: 0,
         totalDebtPaid: 0,
+        totalCardPayment: 0,
+        totalLottoTurnover: 0,
+        totalRepi: 0,
         totalCashExpected: 0,
         createdAt: serverTimestamp()
       };
@@ -1055,7 +1220,10 @@
       const expense = moneyMovements.filter(item => item.type === "expense").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const debtCreated = moneyMovements.filter(item => item.type === "debt_create").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const debtPaid = moneyMovements.filter(item => item.type === "debt_payment").reduce((sum, item) => sum + toNumber(item.amount), 0);
-      const expectedCash = productSales + income - expense - debtCreated + debtPaid;
+      const cardPayment = moneyMovements.filter(item => item.type === "card_payment").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const lottoTurnover = moneyMovements.filter(item => item.type === "lotto_turnover").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const repi = moneyMovements.filter(item => item.type === "repi").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const expectedCash = productSales + income - expense - debtCreated + debtPaid - cardPayment + lottoTurnover - repi;
 
       return {
         productSales,
@@ -1063,24 +1231,71 @@
         expense,
         debtCreated,
         debtPaid,
+        cardPayment,
+        lottoTurnover,
+        repi,
         expectedCash
       };
+    }
+
+    function renderMovementTable(type, body, emptyText, columns = "date") {
+      const list = moneyMovements.filter(item => item.type === type);
+      body.innerHTML = "";
+
+      if (!list.length) {
+        const colspan = columns === "repi" ? 5 : 5;
+        body.innerHTML = `<tr><td colspan="${colspan}">${emptyText}</td></tr>`;
+        return;
+      }
+
+      list.forEach(item => {
+        const amount = toNumber(item.amount);
+        const effect = movementEffect(item.type, amount);
+        const tr = document.createElement("tr");
+
+        if (columns === "repi") {
+          tr.innerHTML = `
+            <td>${escapeHtml(item.personName || "")}</td>
+            <td>${formatMoney(amount)}</td>
+            <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
+            <td>${escapeHtml(item.note || "")}</td>
+            <td>${escapeHtml(item.createdByName || "")}</td>
+          `;
+        } else {
+          tr.innerHTML = `
+            <td>${item.movementDate ? formatBusinessDate(item.movementDate) : "-"}</td>
+            <td>${formatMoney(amount)}</td>
+            <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
+            <td>${escapeHtml(item.note || "")}</td>
+            <td>${escapeHtml(item.createdByName || "")}</td>
+          `;
+        }
+
+        body.appendChild(tr);
+      });
     }
 
     function renderFinance() {
       const totals = financeTotals();
 
       financeProductSales.textContent = formatMoney(totals.productSales);
+      financeCardPayment.textContent = `-${formatMoney(totals.cardPayment)}`;
+      financeLottoTurnover.textContent = formatMoney(totals.lottoTurnover);
+      financeRepi.textContent = `-${formatMoney(totals.repi)}`;
       financeIncome.textContent = formatMoney(totals.income);
       financeExpense.textContent = `-${formatMoney(totals.expense)}`;
       financeDebtCreated.textContent = `-${formatMoney(totals.debtCreated)}`;
       financeDebtPaid.textContent = formatMoney(totals.debtPaid);
       financeExpectedCash.textContent = formatMoney(totals.expectedCash);
 
+      renderMovementTable("card_payment", cardPaymentsBody, "Nincs rögzített bankkártya összeg.");
+      renderMovementTable("lotto_turnover", lottoTurnoverBody, "Nincs rögzített lottó forgalom.");
+      renderMovementTable("repi", repiBody, "Nincs rögzített repi fogyasztás.", "repi");
+
       moneyMovementsBody.innerHTML = "";
 
       if (!moneyMovements.length) {
-        moneyMovementsBody.innerHTML = `<tr><td colspan="6">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
+        moneyMovementsBody.innerHTML = `<tr><td colspan="7">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
       } else {
         moneyMovements.forEach(item => {
           const amount = toNumber(item.amount);
@@ -1089,6 +1304,7 @@
 
           tr.innerHTML = `
             <td>${movementTypeLabel(item.type)}</td>
+            <td>${item.movementDate ? formatBusinessDate(item.movementDate) : "-"}</td>
             <td>${escapeHtml(item.personName || "")}</td>
             <td>${formatMoney(amount)}</td>
             <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
@@ -1331,6 +1547,9 @@
 
       return {
         productSales: totals.productSales,
+        cardPayment: totals.cardPayment,
+        lottoTurnover: totals.lottoTurnover,
+        repi: totals.repi,
         income: totals.income,
         expense: totals.expense,
         debtCreated: totals.debtCreated,
@@ -1348,6 +1567,9 @@
         totalMoneyExpense: totals.expense,
         totalDebtCreated: totals.debtCreated,
         totalDebtPaid: totals.debtPaid,
+        totalCardPayment: totals.cardPayment,
+        totalLottoTurnover: totals.lottoTurnover,
+        totalRepi: totals.repi,
         totalCashExpected: totals.expectedCash,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
@@ -1594,6 +1816,9 @@
         totalMoneyExpense: financials.expense,
         totalDebtCreated: financials.debtCreated,
         totalDebtPaid: financials.debtPaid,
+        totalCardPayment: financials.cardPayment,
+        totalLottoTurnover: financials.lottoTurnover,
+        totalRepi: financials.repi,
         totalCashExpected: financials.expectedCash,
         updatedAt: serverTimestamp()
       }, { merge: true });
@@ -1643,6 +1868,137 @@
       await batch.commit();
 
       window.location.href = `stand.html?shiftId=${encodeURIComponent(currentShift.id)}`;
+    }
+
+    async function refreshMoneyAfterSave(text) {
+      await loadMoneyMovements(currentShift.id);
+      await loadOpenDebts();
+      renderFinance();
+
+      const totals = financeTotals();
+      const updateBatch = writeBatch(db);
+      updateBatch.set(doc(db, "shifts", currentShift.id), {
+        totalMoneyIncome: totals.income,
+        totalMoneyExpense: totals.expense,
+        totalDebtCreated: totals.debtCreated,
+        totalDebtPaid: totals.debtPaid,
+        totalCardPayment: totals.cardPayment,
+        totalLottoTurnover: totals.lottoTurnover,
+        totalRepi: totals.repi,
+        totalCashExpected: totals.expectedCash,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+      await updateBatch.commit();
+
+      showMessage(text);
+    }
+
+    async function createSimpleMoneyMovement(type, amount, personName, note, movementDate) {
+      if (!isOpenShift()) {
+        showMessage("Pénzmozgást csak nyitott standhoz lehet rögzíteni.", true);
+        return;
+      }
+
+      if (amount <= 0) {
+        showMessage("Az összegnek nagyobbnak kell lennie nullánál.", true);
+        return;
+      }
+
+      const movementRef = doc(collection(db, "shifts", currentShift.id, "moneyMovements"));
+      const batch = writeBatch(db);
+
+      batch.set(movementRef, {
+        type,
+        amount,
+        personName,
+        note,
+        movementDate: movementDate || "",
+        shiftId: currentShift.id,
+        shiftLabel: currentShift.shiftLabel || "",
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.uid,
+        createdByName: currentUserData.name
+      });
+
+      const logRef = doc(collection(db, "logs"));
+      batch.set(logRef, {
+        action: "money_movement_created",
+        details: {
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          type,
+          amount,
+          effect: movementEffect(type, amount),
+          personName,
+          note,
+          movementDate
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+    }
+
+    async function addCardPayment() {
+      const amount = toNumber(cardAmount.value);
+      const date = cardDate.value || currentShift?.businessDate || getTodayInputDate();
+      const note = cardNote.value.trim();
+
+      if (!date) {
+        showMessage("Bankkártyánál a nap kötelező.", true);
+        return;
+      }
+
+      await createSimpleMoneyMovement("card_payment", amount, "Bankkártya", note, date);
+
+      cardAmount.value = "";
+      cardNote.value = "";
+      cardDate.value = date;
+
+      await refreshMoneyAfterSave("Bankkártya összeg mentve.");
+    }
+
+    async function addLottoTurnover() {
+      const amount = toNumber(lottoAmount.value);
+      const date = lottoDate.value || currentShift?.businessDate || getTodayInputDate();
+      const note = lottoNote.value.trim();
+
+      if (!date) {
+        showMessage("Lottó forgalomnál a nap kötelező.", true);
+        return;
+      }
+
+      await createSimpleMoneyMovement("lotto_turnover", amount, "Lottó", note, date);
+
+      lottoAmount.value = "";
+      lottoNote.value = "";
+      lottoDate.value = date;
+
+      await refreshMoneyAfterSave("Lottó forgalom mentve.");
+    }
+
+    async function addRepi() {
+      const person = repiPerson.value.trim();
+      const amount = toNumber(repiAmount.value);
+      const note = repiNote.value.trim();
+
+      if (!person) {
+        showMessage("Repinél kötelező megadni, ki fogyasztott.", true);
+        return;
+      }
+
+      await createSimpleMoneyMovement("repi", amount, person, note, "");
+
+      repiPerson.value = "";
+      repiAmount.value = "";
+      repiNote.value = "";
+
+      await refreshMoneyAfterSave("Repi fogyasztás mentve.");
     }
 
     async function addMoneyMovement() {
@@ -1757,6 +2113,9 @@
         personName: finalPersonName,
         note,
         debtId,
+        shiftId: currentShift.id,
+        shiftLabel: currentShift.shiftLabel || "",
+        movementDate: currentShift.businessDate || "",
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
         createdByName: currentUserData.name
@@ -1792,25 +2151,7 @@
       debtSelect.value = "";
       debtSelectBox.style.display = "none";
 
-      showMessage("Pénzmozgás mentve.");
-
-      await loadMoneyMovements(currentShift.id);
-      await loadOpenDebts();
-      renderFinance();
-
-      const totals = financeTotals();
-      const updateBatch = writeBatch(db);
-      updateBatch.set(doc(db, "shifts", currentShift.id), {
-        totalMoneyIncome: totals.income,
-        totalMoneyExpense: totals.expense,
-        totalDebtCreated: totals.debtCreated,
-        totalDebtPaid: totals.debtPaid,
-        totalCashExpected: totals.expectedCash,
-        updatedAt: serverTimestamp(),
-        updatedBy: currentUser.uid,
-        updatedByName: currentUserData.name
-      }, { merge: true });
-      await updateBatch.commit();
+      await refreshMoneyAfterSave("Pénzmozgás mentve.");
     }
 
     async function quickAddProduct() {
@@ -2106,6 +2447,16 @@
     quickAddProductBtn.addEventListener("click", quickAddProduct);
     applyProductUpdatesBtn.addEventListener("click", applyProductUpdatesToOpenShift);
     addMoneyMovementBtn.addEventListener("click", addMoneyMovement);
+    addCardPaymentBtn.addEventListener("click", addCardPayment);
+    addLottoTurnoverBtn.addEventListener("click", addLottoTurnover);
+    addRepiBtn.addEventListener("click", addRepi);
+
+    function setDefaultFinanceDates() {
+      const value = currentShift?.businessDate || getTodayInputDate();
+
+      if (!cardDate.value) cardDate.value = value;
+      if (!lottoDate.value) lottoDate.value = value;
+    }
 
     function updateHeader() {
       if (!currentShift) return;
@@ -2119,6 +2470,7 @@
       financeDetails.style.display = "";
       quickProductDetails.style.display = isOpenShift() ? "" : "none";
       quickPurchasePriceBox.style.display = isAdmin() ? "" : "none";
+      setDefaultFinanceDates();
 
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
@@ -2151,6 +2503,8 @@
       productSyncPanel.style.display = "none";
       standBody.innerHTML = "";
       shiftDate.value = getTodayInputDate();
+      cardDate.value = getTodayInputDate();
+      lottoDate.value = getTodayInputDate();
       renderFinance();
 
       if (currentUser && users.some(user => user.id === currentUser.uid)) {
