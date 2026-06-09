@@ -67,6 +67,7 @@
               <th>Egység</th>
               <th>Nyitó</th>
               <th>Vételezés</th>
+              <th>Vét. megj.</th>
               <th>Összesen</th>
               <th>Maradvány / záró</th>
               <th>Fogyás</th>
@@ -195,6 +196,10 @@
       }
 
       return !!row.unlockedFields[field];
+    }
+
+    function receivedNeedsNote(row) {
+      return !isCounterUnit(row) && toNumber(row.received) < 0;
     }
 
     function calc(row) {
@@ -467,6 +472,7 @@
           openingChangeNote: "",
           openingChanged: false,
           received: 0,
+          receivedNote: "",
           total: opening,
           remaining: "",
           consumption: 0,
@@ -513,6 +519,7 @@
         openingFinal: item.openingFinal ?? item.openingAuto ?? 0,
         openingChangeNote: item.openingChangeNote || "",
         received: item.received ?? 0,
+        receivedNote: item.receivedNote || "",
         remaining: item.remaining ?? "",
         salePriceAtShift: item.salePriceAtShift ?? 0,
         purchasePriceAtShift: item.purchasePriceAtShift ?? 0,
@@ -549,6 +556,7 @@
           openingFinal: item?.openingFinal ?? item?.openingAuto ?? 0,
           openingChangeNote: item?.openingChangeNote || "",
           received: item?.received ?? 0,
+          receivedNote: item?.receivedNote || "",
           remaining: item?.remaining ?? "",
           salePriceAtShift: item?.salePriceAtShift ?? product.salePrice ?? 0,
           purchasePriceAtShift: item?.purchasePriceAtShift ?? product.purchasePrice ?? 0,
@@ -561,7 +569,7 @@
     }
 
     function comparableValue(field, value) {
-      if (field === "openingChangeNote") {
+      if (field === "openingChangeNote" || field === "receivedNote") {
         return String(value || "").trim();
       }
 
@@ -579,6 +587,7 @@
         openingFinal: comparableValue("openingFinal", row.openingFinal),
         openingChangeNote: comparableValue("openingChangeNote", row.openingChangeNote),
         received: comparableValue("received", row.received),
+        receivedNote: comparableValue("receivedNote", row.receivedNote),
         remaining: comparableValue("remaining", row.remaining),
         salePriceAtShift: comparableValue("salePriceAtShift", row.salePriceAtShift)
       };
@@ -595,6 +604,7 @@
         { key: "openingFinal", label: "Nyitó" },
         { key: "openingChangeNote", label: "Nyitó módosítás megjegyzése" },
         { key: "received", label: "Vételezés" },
+        { key: "receivedNote", label: "Vételezés megjegyzés" },
         { key: "remaining", label: "Maradvány / záró" },
         { key: "salePriceAtShift", label: "Egységár" }
       ];
@@ -676,7 +686,7 @@
 
       categoryTr.dataset.category = category;
       categoryTr.innerHTML = `
-        <td colspan="10">
+        <td colspan="11">
           <button class="category-toggle" data-category="${escapeHtml(category)}">${collapsed ? "▶" : "▼"}</button>
           <span class="category-title">${escapeHtml(category)}</span>
           <span class="category-total">Összesen: ${formatMoney(stats.total)}</span>
@@ -697,6 +707,14 @@
           <button class="icon-edit-btn" data-action="unlock-field" data-index="${index}" data-field="${field}" title="Módosítás">✎</button>
         </div>
       `;
+    }
+
+    function renderReceivedNoteCell(row) {
+      if (receivedNeedsNote(row) || String(row.receivedNote || "").trim()) {
+        return `<input class="table-input note-input active-input received-note-input" data-field="receivedNote" value="${escapeHtml(row.receivedNote || "")}" placeholder="pl. Gyuri elvitte, lejárt">`;
+      }
+
+      return `<span class="muted-cell">—</span>`;
     }
 
     function renderRows() {
@@ -726,6 +744,10 @@
           tr.classList.add("review-row");
         }
 
+        if (receivedNeedsNote(row)) {
+          tr.classList.add("negative-received-row");
+        }
+
         const receivedCell = counter
           ? `<input class="table-input disabled-input" value="" disabled>`
           : inputWithEdit(row, index, "received", row.received);
@@ -740,6 +762,7 @@
           <td>${escapeHtml(row.unitAtShift)}</td>
           <td>${inputWithEdit(row, index, "openingFinal", row.openingFinal)}</td>
           <td>${receivedCell}</td>
+          <td class="received-note-cell">${renderReceivedNoteCell(row)}</td>
           <td class="calc-total">${counter ? "—" : formatNumber(c.total)}</td>
           <td><input class="table-input active-input" data-field="remaining" value="${escapeHtml(row.remaining)}"></td>
           <td class="calc-consumption">${formatNumber(c.consumption)}</td>
@@ -758,16 +781,27 @@
     function updateRowDisplay(tr, row) {
       const c = calc(row);
       const counter = isCounterUnit(row);
+      const receivedNoteCell = tr.querySelector(".received-note-cell");
 
       tr.querySelector(".calc-total").textContent = counter ? "—" : formatNumber(c.total);
       tr.querySelector(".calc-consumption").textContent = formatNumber(c.consumption);
       tr.querySelector(".calc-current").textContent = formatNumber(c.currentStock);
       tr.querySelector(".calc-sales").textContent = formatMoney(c.salesValue);
 
+      if (receivedNoteCell) {
+        receivedNoteCell.innerHTML = renderReceivedNoteCell(row);
+      }
+
       if (openingChanged(row)) {
         tr.classList.add("review-row");
       } else {
         tr.classList.remove("review-row");
+      }
+
+      if (receivedNeedsNote(row)) {
+        tr.classList.add("negative-received-row");
+      } else {
+        tr.classList.remove("negative-received-row");
       }
 
       updateTotalSales();
@@ -783,6 +817,10 @@
       for (const row of rows) {
         if (openingChanged(row) && !String(row.openingChangeNote || "").trim()) {
           return `Nyitó módosításnál kötelező a megjegyzés: ${row.productNameAtShift}`;
+        }
+
+        if (receivedNeedsNote(row) && !String(row.receivedNote || "").trim()) {
+          return `Negatív vételezésnél kötelező megjegyzést írni: ${row.productNameAtShift}`;
         }
 
         if (closing && !hasValue(row.remaining)) {
@@ -807,6 +845,7 @@
         openingChangeNote: openingChanged(row) ? String(row.openingChangeNote || "").trim() : "",
         openingChanged: openingChanged(row),
         received: isCounterUnit(row) ? 0 : toNumber(row.received),
+        receivedNote: receivedNeedsNote(row) ? String(row.receivedNote || "").trim() : "",
         total: c.total,
         remaining: hasValue(row.remaining) ? toNumber(row.remaining) : "",
         consumption: c.consumption,
@@ -820,6 +859,17 @@
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
       };
+    }
+
+    function negativeReceivedNotes() {
+      return rows
+        .filter(row => receivedNeedsNote(row))
+        .map(row => ({
+          productId: row.productId,
+          productName: row.productNameAtShift,
+          received: toNumber(row.received),
+          note: String(row.receivedNote || "").trim()
+        }));
     }
 
     async function propagateRemainingChanges(changes) {
@@ -984,6 +1034,7 @@
             shiftId: currentShift.id,
             shiftLabel: currentShift.shiftLabel || "",
             changes,
+            negativeReceivedNotes: negativeReceivedNotes(),
             totalSalesValue,
             totalPurchaseValue,
             totalMarginValue
@@ -999,7 +1050,8 @@
 
       if (!closed) {
         await writeLog("shift_draft_saved", {
-          shiftId: currentShift.id
+          shiftId: currentShift.id,
+          negativeReceivedNotes: negativeReceivedNotes()
         });
 
         showMessage("Piszkozat mentve.");
@@ -1084,6 +1136,7 @@
           businessDate: currentShift.businessDate || "",
           assignedUserId: currentShift.assignedUserId || "",
           assignedUserName: currentShift.assignedUserName || "",
+          negativeReceivedNotes: negativeReceivedNotes(),
           totalSalesValue,
           totalPurchaseValue,
           totalMarginValue
@@ -1108,6 +1161,11 @@
       const field = input.dataset.field;
 
       rows[index][field] = input.value;
+
+      if (field === "receivedNote") {
+        return;
+      }
+
       updateRowDisplay(tr, rows[index]);
     });
 
