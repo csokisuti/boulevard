@@ -69,6 +69,7 @@
         <table class="data-table debts-table">
           <thead>
             <tr>
+              <th>Dátum</th>
               <th>Név</th>
               <th>Eredeti összeg</th>
               <th>Befizetve</th>
@@ -96,6 +97,7 @@
         <table class="data-table debts-table">
           <thead>
             <tr>
+              <th>Dátum</th>
               <th>Név</th>
               <th>Eredeti összeg</th>
               <th>Befizetve</th>
@@ -217,8 +219,13 @@
       });
 
       debts.sort((a, b) => {
-        const statusCompare = String(a.status || "").localeCompare(String(b.status || ""), "hu");
-        if (statusCompare !== 0) return statusCompare;
+        const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+        const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+
+        if (a.status === "paid" && b.status !== "paid") return 1;
+        if (a.status !== "paid" && b.status === "paid") return -1;
+        if (aTime !== bTime) return bTime - aTime;
+
         return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
       });
 
@@ -242,13 +249,14 @@
       paidDebtsBody.innerHTML = "";
 
       if (!openDebts.length) {
-        openDebtsBody.innerHTML = `<tr><td colspan="8">Nincs nyitott tartozás.</td></tr>`;
+        openDebtsBody.innerHTML = `<tr><td colspan="9">Nincs nyitott tartozás.</td></tr>`;
       } else {
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
           const canPay = !!currentShift;
 
           tr.innerHTML = `
+            <td>${formatDateTime(debt.createdAt)}</td>
             <td>${escapeHtml(debt.name || "")}</td>
             <td>${formatMoney(debt.originalAmount)}</td>
             <td>${formatMoney(debt.paidAmount)}</td>
@@ -268,12 +276,13 @@
       }
 
       if (!paidDebts.length) {
-        paidDebtsBody.innerHTML = `<tr><td colspan="7">Nincs lezárt tartozás.</td></tr>`;
+        paidDebtsBody.innerHTML = `<tr><td colspan="8">Nincs lezárt tartozás.</td></tr>`;
       } else {
         paidDebts.forEach(debt => {
           const tr = document.createElement("tr");
 
           tr.innerHTML = `
+            <td>${formatDateTime(debt.createdAt)}</td>
             <td>${escapeHtml(debt.name || "")}</td>
             <td>${formatMoney(debt.originalAmount)}</td>
             <td>${formatMoney(debt.paidAmount)}</td>
