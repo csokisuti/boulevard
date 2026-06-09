@@ -226,6 +226,24 @@
             <button id="addMoneyMovementBtn">Pénzmozgás mentése</button>
             <a class="small-link-btn" href="debts.html">Tartozások oldal</a>
           </div>
+          <div class="finance-section embedded-finance-section">
+            <h3>Nyitott tartozások</h3>
+            <div class="table-wrapper">
+              <table class="data-table finance-table">
+                <thead>
+                  <tr>
+                    <th>Dátum</th>
+                    <th>Név</th>
+                    <th>Eredeti összeg</th>
+                    <th>Befizetve</th>
+                    <th>Hátralék</th>
+                    <th>Megjegyzés</th>
+                  </tr>
+                </thead>
+                <tbody id="openDebtsBody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
         <div class="finance-block">
@@ -345,38 +363,6 @@
           </div>
         </div>
 
-        <div class="finance-block">
-          <h3>Számolt leadó</h3>
-          <p class="muted-cell">Ez az összeg automatikusan megy át a következő standba „Előző stand leadó” néven.</p>
-
-          <div class="summary-box">
-            <strong>Leadó</strong>
-            <span id="calculatedHandoverBox">0 Ft</span>
-          </div>
-
-          <div class="button-row">
-            <button id="saveHandoverBtn">Leadó mentése</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="finance-section">
-        <h3>Nyitott tartozások</h3>
-        <div class="table-wrapper">
-          <table class="data-table finance-table">
-            <thead>
-              <tr>
-                <th>Dátum</th>
-                <th>Név</th>
-                <th>Eredeti összeg</th>
-                <th>Befizetve</th>
-                <th>Hátralék</th>
-                <th>Megjegyzés</th>
-              </tr>
-            </thead>
-            <tbody id="openDebtsBody"></tbody>
-          </table>
-        </div>
       </div>
 
       <div class="finance-section">
@@ -390,6 +376,7 @@
                 <th>Név / partner</th>
                 <th>Összeg</th>
                 <th>Hatás</th>
+                <th>Egyenleg</th>
                 <th>Megjegyzés</th>
                 <th>Rögzítette</th>
               </tr>
@@ -397,6 +384,12 @@
             <tbody id="moneyMovementsBody"></tbody>
           </table>
         </div>
+
+        <div class="summary-box finance-final-summary">
+          <strong>Számolt leadó</strong>
+          <span id="calculatedHandoverBox">0 Ft</span>
+        </div>
+        <p class="muted-cell">Ez az összeg a stand lezárásakor automatikusan megy át a következő standba „Előző stand leadó” néven.</p>
       </div>
     </details>
   </main>
@@ -470,7 +463,6 @@
     const addMoneyMovementBtn = document.getElementById("addMoneyMovementBtn");
     const moneyMovementsBody = document.getElementById("moneyMovementsBody");
     const openDebtsBody = document.getElementById("openDebtsBody");
-    const saveHandoverBtn = document.getElementById("saveHandoverBtn");
 
     const params = new URLSearchParams(window.location.search);
     const shiftIdFromUrl = params.get("shiftId");
@@ -1347,13 +1339,16 @@
       moneyMovementsBody.innerHTML = "";
 
       if (!display.length) {
-        moneyMovementsBody.innerHTML = `<tr><td colspan="7">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
+        moneyMovementsBody.innerHTML = `<tr><td colspan="8">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
         return;
       }
+
+      let runningBalance = 0;
 
       display.forEach(item => {
         const amount = toNumber(item.amount);
         const effect = movementEffect(item.type, amount);
+        runningBalance += effect;
         const tr = document.createElement("tr");
 
         tr.innerHTML = `
@@ -1362,6 +1357,7 @@
           <td>${escapeHtml(item.personName || "")}</td>
           <td>${formatMoney(amount)}</td>
           <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
+          <td><strong>${formatMoney(runningBalance)}</strong></td>
           <td>${escapeHtml(item.note || "")}</td>
           <td>${escapeHtml(item.createdByName || "")}</td>
         `;
@@ -2070,43 +2066,6 @@
       await refreshMoneyAfterSave("Pénzmozgás mentve.");
     }
 
-    async function saveHandover() {
-      if (!isOpenShift()) {
-        showMessage("Leadót csak nyitott standnál lehet menteni.", true);
-        return;
-      }
-
-      const totals = financeTotals();
-
-      await setDoc(doc(db, "shifts", currentShift.id), {
-        handoverAmount: totals.calculatedHandover,
-        totalCashExpected: totals.calculatedHandover,
-        totalPreviousHandover: totals.previousHandover,
-        handoverSavedAt: serverTimestamp(),
-        handoverSavedBy: currentUser.uid,
-        handoverSavedByName: currentUserData.name,
-        updatedAt: serverTimestamp(),
-        updatedBy: currentUser.uid,
-        updatedByName: currentUserData.name
-      }, { merge: true });
-
-      await writeLog("handover_saved", {
-        shiftId: currentShift.id,
-        shiftLabel: currentShift.shiftLabel || "",
-        handoverAmount: totals.calculatedHandover,
-        financials: totals
-      });
-
-      currentShift = {
-        ...currentShift,
-        handoverAmount: totals.calculatedHandover,
-        totalCashExpected: totals.calculatedHandover
-      };
-
-      renderFinance();
-      showMessage("Leadó mentve.");
-    }
-
     async function quickAddProduct() {
       if (!isOpenShift()) {
         showMessage("Új terméket csak nyitott standhoz lehet így hozzáadni.", true);
@@ -2392,7 +2351,6 @@
     addCardPaymentBtn.addEventListener("click", addCardPayment);
     addLottoTurnoverBtn.addEventListener("click", addLottoTurnover);
     addRepiBtn.addEventListener("click", addRepi);
-    saveHandoverBtn.addEventListener("click", saveHandover);
 
     function setDefaultFinanceDates() {
       const value = currentShift?.businessDate || getTodayInputDate();
