@@ -66,7 +66,6 @@
               <th>Termék</th>
               <th>Egység</th>
               <th>Nyitó</th>
-              <th>Nyitó megj.</th>
               <th>Vételezés</th>
               <th>Összesen</th>
               <th>Maradvány / záró</th>
@@ -114,6 +113,7 @@
     let users = [];
     let rows = [];
     let originalRows = [];
+    let collapsedCategories = {};
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
@@ -142,7 +142,8 @@
 
     function formatNumber(value) {
       const n = Number(value || 0);
-      return Number.isInteger(n) ? String(n) : String(n).replace(".", ",");
+      if (Number.isInteger(n)) return String(n);
+      return String(Number(n.toFixed(3))).replace(".", ",");
     }
 
     function formatDateTime(value) {
@@ -182,6 +183,18 @@
 
     function categoryName(row) {
       return String(row.categoryAtShift || "Egyéb").trim() || "Egyéb";
+    }
+
+    function getRowsForCategory(category) {
+      return rows.filter(row => categoryName(row) === category);
+    }
+
+    function isFieldUnlocked(row, field) {
+      if (!row.unlockedFields) {
+        row.unlockedFields = {};
+      }
+
+      return !!row.unlockedFields[field];
     }
 
     function calc(row) {
@@ -365,7 +378,7 @@
 
       return {
         id: item.id,
-        ...data()
+        ...data
       };
     }
 
@@ -503,7 +516,8 @@
         remaining: item.remaining ?? "",
         salePriceAtShift: item.salePriceAtShift ?? 0,
         purchasePriceAtShift: item.purchasePriceAtShift ?? 0,
-        adminReviewNeeded: false
+        adminReviewNeeded: false,
+        unlockedFields: {}
       };
     }
 
@@ -538,7 +552,8 @@
           remaining: item?.remaining ?? "",
           salePriceAtShift: item?.salePriceAtShift ?? product.salePrice ?? 0,
           purchasePriceAtShift: item?.purchasePriceAtShift ?? product.purchasePrice ?? 0,
-          adminReviewNeeded: product.adminReviewNeeded || false
+          adminReviewNeeded: product.adminReviewNeeded || false,
+          unlockedFields: {}
         };
       });
 
@@ -578,7 +593,7 @@
       const changes = [];
       const fields = [
         { key: "openingFinal", label: "Nyitó" },
-        { key: "openingChangeNote", label: "Nyitó megjegyzés" },
+        { key: "openingChangeNote", label: "Nyitó módosítás megjegyzése" },
         { key: "received", label: "Vételezés" },
         { key: "remaining", label: "Maradvány / záró" },
         { key: "salePriceAtShift", label: "Egységár" }
@@ -612,6 +627,78 @@
       return changes;
     }
 
+    function categoryStats(category) {
+      const categoryRows = getRowsForCategory(category);
+      const total = categoryRows.reduce((sum, row) => sum + calc(row).salesValue, 0);
+      const filled = categoryRows.filter(row => hasValue(row.remaining)).length;
+      const allFilled = categoryRows.length > 0 && filled === categoryRows.length;
+
+      return {
+        total,
+        filled,
+        all: categoryRows.length,
+        allFilled
+      };
+    }
+
+    function updateCategorySummaries() {
+      document.querySelectorAll(".category-row").forEach(categoryRow => {
+        const category = categoryRow.dataset.category;
+        const stats = categoryStats(category);
+        const totalEl = categoryRow.querySelector(".category-total");
+        const statusEl = categoryRow.querySelector(".category-status");
+
+        if (totalEl) {
+          totalEl.textContent = `Összesen: ${formatMoney(stats.total)}`;
+        }
+
+        if (statusEl) {
+          statusEl.textContent = `${stats.filled}/${stats.all} kitöltve`;
+        }
+
+        if (stats.allFilled) {
+          categoryRow.classList.add("category-complete");
+        } else {
+          categoryRow.classList.remove("category-complete");
+        }
+      });
+    }
+
+    function renderCategoryHeader(category) {
+      const stats = categoryStats(category);
+      const collapsed = !!collapsedCategories[category];
+      const categoryTr = document.createElement("tr");
+
+      categoryTr.className = "category-row";
+      if (stats.allFilled) {
+        categoryTr.classList.add("category-complete");
+      }
+
+      categoryTr.dataset.category = category;
+      categoryTr.innerHTML = `
+        <td colspan="10">
+          <button class="category-toggle" data-category="${escapeHtml(category)}">${collapsed ? "▶" : "▼"}</button>
+          <span class="category-title">${escapeHtml(category)}</span>
+          <span class="category-total">Összesen: ${formatMoney(stats.total)}</span>
+          <span class="category-status">${stats.filled}/${stats.all} kitöltve</span>
+        </td>
+      `;
+
+      standBody.appendChild(categoryTr);
+    }
+
+    function inputWithEdit(row, index, field, value, extraClass = "") {
+      const unlocked = isFieldUnlocked(row, field);
+      const safeValue = escapeHtml(value);
+
+      return `
+        <div class="input-edit-wrap">
+          <input class="table-input ${extraClass}" data-field="${field}" value="${safeValue}" ${unlocked ? "" : "disabled"}>
+          <button class="icon-edit-btn" data-action="unlock-field" data-index="${index}" data-field="${field}" title="Módosítás">✎</button>
+        </div>
+      `;
+    }
+
     function renderRows() {
       const search = searchInput.value.trim().toLowerCase();
       standBody.innerHTML = "";
@@ -624,12 +711,11 @@
         const currentCategory = categoryName(row);
 
         if (currentCategory !== lastCategory) {
-          const categoryTr = document.createElement("tr");
-          categoryTr.className = "category-row";
-          categoryTr.innerHTML = `<td colspan="11">${escapeHtml(currentCategory)}</td>`;
-          standBody.appendChild(categoryTr);
+          renderCategoryHeader(currentCategory);
           lastCategory = currentCategory;
         }
+
+        if (collapsedCategories[currentCategory]) return;
 
         const c = calc(row);
         const counter = isCounterUnit(row);
@@ -640,21 +726,25 @@
           tr.classList.add("review-row");
         }
 
+        const receivedCell = counter
+          ? `<input class="table-input disabled-input" value="" disabled>`
+          : inputWithEdit(row, index, "received", row.received);
+
         tr.innerHTML = `
           <td>
             <strong>${escapeHtml(row.productNameAtShift)}</strong>
             ${row.adminReviewNeeded ? `<span class="mini-badge">ellenőrizendő</span>` : ""}
             ${counter ? `<span class="mini-badge">számoló</span>` : ""}
+            ${openingChanged(row) ? `<span class="mini-badge" title="${escapeHtml(row.openingChangeNote || "")}">nyitó mód.</span>` : ""}
           </td>
           <td>${escapeHtml(row.unitAtShift)}</td>
-          <td><input class="table-input" data-field="openingFinal" value="${escapeHtml(row.openingFinal)}"></td>
-          <td><input class="table-input note-input" data-field="openingChangeNote" value="${escapeHtml(row.openingChangeNote || "")}" placeholder="ha nyitót módosítasz"></td>
-          <td><input class="table-input ${counter ? "disabled-input" : ""}" data-field="received" value="${counter ? "" : escapeHtml(row.received)}" ${counter ? "disabled" : ""}></td>
+          <td>${inputWithEdit(row, index, "openingFinal", row.openingFinal)}</td>
+          <td>${receivedCell}</td>
           <td class="calc-total">${counter ? "—" : formatNumber(c.total)}</td>
-          <td><input class="table-input" data-field="remaining" value="${escapeHtml(row.remaining)}"></td>
+          <td><input class="table-input active-input" data-field="remaining" value="${escapeHtml(row.remaining)}"></td>
           <td class="calc-consumption">${formatNumber(c.consumption)}</td>
           <td class="calc-current">${formatNumber(c.currentStock)}</td>
-          <td><input class="table-input price-input" data-field="salePriceAtShift" value="${escapeHtml(row.salePriceAtShift)}"></td>
+          <td>${inputWithEdit(row, index, "salePriceAtShift", row.salePriceAtShift, "price-input")}</td>
           <td class="calc-sales">${formatMoney(c.salesValue)}</td>
         `;
 
@@ -662,6 +752,7 @@
       });
 
       updateTotalSales();
+      updateCategorySummaries();
     }
 
     function updateRowDisplay(tr, row) {
@@ -680,6 +771,7 @@
       }
 
       updateTotalSales();
+      updateCategorySummaries();
     }
 
     function updateTotalSales() {
@@ -712,7 +804,7 @@
         sortOrderAtShift: row.sortOrderAtShift,
         openingAuto: toNumber(row.openingAuto),
         openingFinal: toNumber(row.openingFinal),
-        openingChangeNote: String(row.openingChangeNote || "").trim(),
+        openingChangeNote: openingChanged(row) ? String(row.openingChangeNote || "").trim() : "",
         openingChanged: openingChanged(row),
         received: isCounterUnit(row) ? 0 : toNumber(row.received),
         total: c.total,
@@ -1017,6 +1109,55 @@
 
       rows[index][field] = input.value;
       updateRowDisplay(tr, rows[index]);
+    });
+
+    standBody.addEventListener("click", (event) => {
+      const categoryButton = event.target.closest(".category-toggle");
+
+      if (categoryButton) {
+        const category = categoryButton.dataset.category;
+        collapsedCategories[category] = !collapsedCategories[category];
+        renderRows();
+        return;
+      }
+
+      const editButton = event.target.closest("[data-action='unlock-field']");
+
+      if (!editButton) return;
+
+      const index = Number(editButton.dataset.index);
+      const field = editButton.dataset.field;
+      const row = rows[index];
+
+      if (!row) return;
+
+      if (!row.unlockedFields) {
+        row.unlockedFields = {};
+      }
+
+      if (field === "openingFinal") {
+        const note = prompt(`Miért módosítod a nyitót? Automata nyitó: ${formatNumber(row.openingAuto)}`, row.openingChangeNote || "");
+
+        if (note === null) return;
+
+        if (!note.trim()) {
+          showMessage("Nyitó módosításához kötelező megjegyzést írni.", true);
+          return;
+        }
+
+        row.openingChangeNote = note.trim();
+      }
+
+      row.unlockedFields[field] = true;
+
+      const wrapper = editButton.closest(".input-edit-wrap");
+      const input = wrapper ? wrapper.querySelector("input") : null;
+
+      if (input) {
+        input.disabled = false;
+        input.focus();
+        input.select();
+      }
     });
 
     saveDraftBtn.addEventListener("click", saveDraft);
