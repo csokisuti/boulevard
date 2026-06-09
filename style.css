@@ -320,3 +320,17 @@ button:hover {
     max-width: 100%;
   }
 }
+.small-link-btn {
+  display: inline-block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #111827;
+  color: white;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.small-link-btn:hover {
+  background: #374151;
+}
