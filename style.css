@@ -764,84 +764,39 @@ button:disabled {
   font-size: 14px;
 }
 
-.admin-review-summary-grid {
-  margin-top: 18px;
-}
 
-.admin-filter-row {
-  display: flex;
-  gap: 12px;
+.order-actions {
+  display: inline-flex;
+  gap: 4px;
   align-items: center;
-  flex-wrap: wrap;
+  margin-left: 8px;
+  vertical-align: middle;
 }
 
-.admin-filter-row select {
-  width: auto;
-  min-width: 190px;
+.order-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1;
+  background: #e5e7eb;
+  color: #111827;
+  border: 1px solid #d1d5db;
 }
 
-.admin-log-table {
-  min-width: 1200px;
+.order-btn:hover {
+  background: #d1d5db;
 }
 
-.admin-detail-cell {
-  min-width: 320px;
-  font-size: 14px;
-  line-height: 1.45;
+.order-btn:disabled {
+  background: #f3f4f6;
+  color: #c4c7cc;
+  border-color: #e5e7eb;
 }
 
-.admin-detail-indent {
-  margin-left: 14px;
-  color: #4b5563;
-}
-
-.status-pill {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: bold;
-}
-
-.status-pill.ok {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.status-pill.warning {
-  background: #ffedd5;
-  color: #9a3412;
-}
-
-
-.secondary-inline-btn {
-  background: #4b5563;
-}
-
-.secondary-inline-btn:hover {
-  background: #374151;
-}
-
-.debt-edit-name-input,
-.debt-edit-amount-input,
-.debt-edit-note-input {
-  min-width: 110px;
-}
-
-.reports-table {
-  min-width: 1200px;
-}
-
-.report-insights-box {
-  margin: 18px 24px 24px;
-  display: grid;
-  gap: 10px;
-}
-
-.report-insight-item {
-  padding: 14px 16px;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #f9fafb;
-  line-height: 1.45;
+.category-order-chip {
+  padding-right: 8px;
 }

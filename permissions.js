@@ -28,9 +28,9 @@ export const PERMISSION_GROUPS = [
       ["canAddRepi", "Repi rögzítése"],
       ["canViewDebts", "Tartozások megtekintése"],
       ["canCreateDebt", "Új tartozás felírása"],
+      ["canPayDebt", "Tartozás befizetés rögzítése"],
       ["canEditTodayDebt", "Aznapi tartozás javítása"],
-      ["canDeleteTodayDebt", "Aznapi tartozás törlése"],
-      ["canPayDebt", "Tartozás befizetés rögzítése"]
+      ["canDeleteTodayDebt", "Aznapi tartozás törlése"]
     ]
   },
   {
@@ -42,6 +42,7 @@ export const PERMISSION_GROUPS = [
       ["canChangeProductStatus", "Termék aktív/passzív állítás"],
       ["canDeleteProducts", "Termék törlése"],
       ["canManageCategories", "Kategóriák kezelése"],
+      ["canReorderProducts", "Kategória- és terméksorrend módosítása"],
       ["canReviewProducts", "Dolgozói termékmódosítás ellenőrzése"],
       ["canViewPurchasePrice", "Beszerzési ár megtekintése"],
       ["canEditPurchasePrice", "Beszerzési ár módosítása"]
@@ -81,15 +82,16 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     canAddRepi: true,
     canViewDebts: true,
     canCreateDebt: true,
+    canPayDebt: true,
     canEditTodayDebt: true,
     canDeleteTodayDebt: true,
-    canPayDebt: true,
     canViewProducts: true,
     canCreateProducts: false,
     canEditProducts: false,
     canChangeProductStatus: false,
     canDeleteProducts: false,
     canManageCategories: false,
+    canReorderProducts: false,
     canReviewProducts: false,
     canViewPurchasePrice: false,
     canEditPurchasePrice: false,

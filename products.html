@@ -241,6 +241,109 @@
       return String(product.name || "").trim();
     }
 
+    function hasSortOrder(value) {
+      return value !== "" && value !== null && value !== undefined && Number.isFinite(Number(value));
+    }
+
+    function categorySortValue(category) {
+      if (category && hasSortOrder(category.sortOrder)) return toNumber(category.sortOrder);
+
+      const byName = [...categories].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      const index = byName.findIndex(item => item.id === category?.id || item.name === category?.name);
+
+      return index >= 0 ? (index + 1) * 1000 : 999999;
+    }
+
+    function categorySortValueByName(name) {
+      const normalized = String(name || "Egyéb").trim() || "Egyéb";
+      const category = categories.find(item => String(item.name || "") === normalized);
+
+      if (category) return categorySortValue(category);
+
+      return 999999;
+    }
+
+    function categoryCompareByOrder(a, b) {
+      const orderCompare = categorySortValue(a) - categorySortValue(b);
+      if (orderCompare !== 0) return orderCompare;
+
+      return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
+    }
+
+    function getOrderedCategories() {
+      return [...categories].sort(categoryCompareByOrder);
+    }
+
+    function productSortValue(product) {
+      if (product && hasSortOrder(product.sortOrder)) return toNumber(product.sortOrder);
+
+      const sameCategory = allProducts
+        .filter(item => categoryName(item) === categoryName(product) && (item.active !== false) === (product.active !== false))
+        .sort((a, b) => productName(a).localeCompare(productName(b), "hu", { sensitivity: "base" }));
+
+      const index = sameCategory.findIndex(item => item.id === product?.id);
+
+      return index >= 0 ? (index + 1) * 1000 : 999999;
+    }
+
+    function productCompareByOrder(a, b) {
+      const categoryCompare = categorySortValueByName(categoryName(a)) - categorySortValueByName(categoryName(b));
+      if (categoryCompare !== 0) return categoryCompare;
+
+      const productOrderCompare = productSortValue(a) - productSortValue(b);
+      if (productOrderCompare !== 0) return productOrderCompare;
+
+      return productName(a).localeCompare(productName(b), "hu", { sensitivity: "base" });
+    }
+
+    function movedSortOrder(orderedItems, oldIndex, newIndex, valueGetter) {
+      const reordered = [...orderedItems];
+      const [moved] = reordered.splice(oldIndex, 1);
+      reordered.splice(newIndex, 0, moved);
+
+      const before = reordered[newIndex - 1];
+      const after = reordered[newIndex + 1];
+
+      if (before && after) return (valueGetter(before) + valueGetter(after)) / 2;
+      if (!before && after) return valueGetter(after) - 1000;
+      if (before && !after) return valueGetter(before) + 1000;
+
+      return 1000;
+    }
+
+    function categoryMoveButtons(category, index, orderedCategories) {
+      if (!can("canReorderProducts")) return "";
+
+      const upDisabled = index === 0 ? "disabled" : "";
+      const downDisabled = index === orderedCategories.length - 1 ? "disabled" : "";
+
+      return `
+        <span class="order-actions">
+          <button class="order-btn" data-action="move-category-up" data-id="${escapeHtml(category.id)}" ${upDisabled} title="Kategória feljebb">↑</button>
+          <button class="order-btn" data-action="move-category-down" data-id="${escapeHtml(category.id)}" ${downDisabled} title="Kategória lejjebb">↓</button>
+        </span>
+      `;
+    }
+
+    function productMoveButtons(product, displayList) {
+      if (!can("canReorderProducts")) return "";
+
+      const sameCategory = displayList.filter(item => categoryName(item) === categoryName(product)).sort(productCompareByOrder);
+      const index = sameCategory.findIndex(item => item.id === product.id);
+
+      if (index === -1) return "";
+
+      const upDisabled = index === 0 ? "disabled" : "";
+      const downDisabled = index === sameCategory.length - 1 ? "disabled" : "";
+
+      return `
+        <span class="order-actions">
+          <button class="order-btn" data-action="move-product-up" data-id="${escapeHtml(product.id)}" ${upDisabled} title="Termék feljebb">↑</button>
+          <button class="order-btn" data-action="move-product-down" data-id="${escapeHtml(product.id)}" ${downDisabled} title="Termék lejjebb">↓</button>
+        </span>
+      `;
+    }
+
     function showMessage(text, error = false) {
       message.textContent = text;
       message.style.color = error ? "#b91c1c" : "#047857";
@@ -273,15 +376,7 @@
     }
 
     function sortProductsForDisplay(products) {
-      return [...products].sort((a, b) => {
-        const categoryCompare = categoryName(a).localeCompare(categoryName(b), "hu", { sensitivity: "base" });
-
-        if (categoryCompare !== 0) {
-          return categoryCompare;
-        }
-
-        return productName(a).localeCompare(productName(b), "hu", { sensitivity: "base" });
-      });
+      return [...products].sort(productCompareByOrder);
     }
 
     async function loadCategories(selectedValue = "") {
@@ -296,7 +391,7 @@
         });
       });
 
-      categories.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      categories.sort(categoryCompareByOrder);
 
       renderCategoryOptions(selectedValue);
       renderCategoryList();
@@ -331,19 +426,22 @@
     function renderCategoryList() {
       categoryList.innerHTML = "";
 
-      if (!categories.length) {
+      const orderedCategories = getOrderedCategories();
+
+      if (!orderedCategories.length) {
         categoryList.innerHTML = `<div class="empty-note">Még nincs kategória.</div>`;
         return;
       }
 
-      categories.forEach(category => {
+      orderedCategories.forEach((category, index) => {
         const usedCount = allProducts.filter(product => product.category === category.name).length;
         const div = document.createElement("div");
-        div.className = "category-chip";
+        div.className = "category-chip category-order-chip";
         div.innerHTML = `
           <span>${escapeHtml(category.name)}</span>
           <small>${usedCount} termék</small>
-          <button class="category-delete-btn" data-action="delete-category" data-id="${category.id}">Törlés</button>
+          ${categoryMoveButtons(category, index, orderedCategories)}
+          ${can("canManageCategories") ? `<button class="category-delete-btn" data-action="delete-category" data-id="${category.id}">Törlés</button>` : ""}
         `;
 
         categoryList.appendChild(div);
@@ -371,8 +469,13 @@
 
       const ref = doc(collection(db, "categories"));
 
+      const nextSortOrder = categories.length
+        ? Math.max(...categories.map(category => categorySortValue(category))) + 1000
+        : 1000;
+
       await setDoc(ref, {
         name,
+        sortOrder: nextSortOrder,
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
         createdByName: currentUserData.name
@@ -461,8 +564,8 @@
       insertAfter.appendChild(end);
 
       allProducts
-        .filter(p => p.id !== editingProductId && p.active !== false)
-        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+        .filter(p => p.id !== editingProductId && p.active !== false && categoryName(p) === (categoryInput.value.trim() || "Egyéb"))
+        .sort(productCompareByOrder)
         .forEach(product => {
           const option = document.createElement("option");
           option.value = product.id;
@@ -472,38 +575,39 @@
     }
 
     function calculateSortOrder(selectedValue, oldProduct) {
+      const selectedCategory = categoryInput.value.trim() || "Egyéb";
       const ordered = allProducts
-        .filter(p => p.id !== editingProductId && p.active !== false)
-        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+        .filter(p => p.id !== editingProductId && p.active !== false && categoryName(p) === selectedCategory)
+        .sort(productCompareByOrder);
 
       if (selectedValue === "__keep__" && oldProduct) {
-        return oldProduct.sortOrder || 1000;
+        return hasSortOrder(oldProduct.sortOrder) ? toNumber(oldProduct.sortOrder) : productSortValue(oldProduct);
       }
 
       if (selectedValue === "__keep__" || selectedValue === "__end__") {
         if (!ordered.length) return 1000;
-        return (ordered[ordered.length - 1].sortOrder || 0) + 1000;
+        return productSortValue(ordered[ordered.length - 1]) + 1000;
       }
 
       if (selectedValue === "__start__") {
         if (!ordered.length) return 1000;
-        return (ordered[0].sortOrder || 1000) - 1000;
+        return productSortValue(ordered[0]) - 1000;
       }
 
       const index = ordered.findIndex(p => p.id === selectedValue);
       if (index === -1) {
         if (!ordered.length) return 1000;
-        return (ordered[ordered.length - 1].sortOrder || 0) + 1000;
+        return productSortValue(ordered[ordered.length - 1]) + 1000;
       }
 
       const current = ordered[index];
       const next = ordered[index + 1];
 
       if (!next) {
-        return (current.sortOrder || 0) + 1000;
+        return productSortValue(current) + 1000;
       }
 
-      return ((current.sortOrder || 0) + (next.sortOrder || 0)) / 2;
+      return (productSortValue(current) + productSortValue(next)) / 2;
     }
 
     async function getLatestStockShift() {
@@ -626,7 +730,15 @@
         if (currentCategory !== lastCategory) {
           const categoryTr = document.createElement("tr");
           categoryTr.className = "product-category-row";
-          categoryTr.innerHTML = `<td colspan="9">${escapeHtml(currentCategory)}</td>`;
+          const category = categories.find(item => item.name === currentCategory);
+          const orderedCategories = getOrderedCategories();
+          const categoryIndex = category ? orderedCategories.findIndex(item => item.id === category.id) : -1;
+          categoryTr.innerHTML = `
+            <td colspan="9">
+              <span>${escapeHtml(currentCategory)}</span>
+              ${category && categoryIndex !== -1 ? categoryMoveButtons(category, categoryIndex, orderedCategories) : ""}
+            </td>
+          `;
           body.appendChild(categoryTr);
           lastCategory = currentCategory;
         }
@@ -655,6 +767,7 @@
           <td>${activeText}</td>
           <td>${product.adminReviewNeeded ? "Ellenőrizendő" : "Rendben"}</td>
           <td class="action-cell">
+            ${productMoveButtons(product, list)}
             ${can("canEditProducts") ? `<button class="small-btn" data-action="edit" data-id="${product.id}">Szerkesztés</button>` : ""}
             ${can("canChangeProductStatus") ? `<button class="small-btn" data-action="${toggleAction}" data-id="${product.id}">${toggleText}</button>` : ""}
             ${can("canReviewProducts") && product.adminReviewNeeded ? `<button class="small-btn" data-action="reviewed" data-id="${product.id}">Ellenőrizve</button>` : ""}
@@ -801,6 +914,87 @@
       await loadProducts();
     }
 
+    async function moveCategory(categoryId, direction) {
+      if (!can("canReorderProducts")) {
+        showMessage("Nincs jogosultságod a sorrend módosításához.", true);
+        return;
+      }
+
+      const orderedCategories = getOrderedCategories();
+      const oldIndex = orderedCategories.findIndex(category => category.id === categoryId);
+      const newIndex = oldIndex + direction;
+
+      if (oldIndex === -1 || newIndex < 0 || newIndex >= orderedCategories.length) return;
+
+      const category = orderedCategories[oldIndex];
+      const newSortOrder = movedSortOrder(orderedCategories, oldIndex, newIndex, categorySortValue);
+
+      await updateDoc(doc(db, "categories", categoryId), {
+        sortOrder: newSortOrder,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      });
+
+      await writeLog("category_order_changed", {
+        categoryId,
+        categoryName: category.name || "",
+        direction: direction < 0 ? "up" : "down",
+        beforeSortOrder: category.sortOrder ?? null,
+        afterSortOrder: newSortOrder
+      });
+
+      await updateCatalogVersion();
+      await loadCategories(category.name || "");
+      renderProducts();
+      showMessage("Kategória sorrendje módosítva.");
+    }
+
+    async function moveProduct(productId, direction) {
+      if (!can("canReorderProducts")) {
+        showMessage("Nincs jogosultságod a sorrend módosításához.", true);
+        return;
+      }
+
+      const product = allProducts.find(item => item.id === productId);
+
+      if (!product) {
+        showMessage("Nem található ez a termék.", true);
+        return;
+      }
+
+      const sameCategory = allProducts
+        .filter(item => categoryName(item) === categoryName(product) && (item.active !== false) === (product.active !== false))
+        .sort(productCompareByOrder);
+
+      const oldIndex = sameCategory.findIndex(item => item.id === productId);
+      const newIndex = oldIndex + direction;
+
+      if (oldIndex === -1 || newIndex < 0 || newIndex >= sameCategory.length) return;
+
+      const newSortOrder = movedSortOrder(sameCategory, oldIndex, newIndex, productSortValue);
+
+      await updateDoc(doc(db, "products", productId), {
+        sortOrder: newSortOrder,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      });
+
+      await writeLog("product_order_changed", {
+        productId,
+        productName: product.name || "",
+        category: categoryName(product),
+        direction: direction < 0 ? "up" : "down",
+        beforeSortOrder: product.sortOrder ?? null,
+        afterSortOrder: newSortOrder
+      });
+
+      await updateCatalogVersion();
+      await loadProducts();
+      showMessage("Terméksorrend módosítva.");
+    }
+
     async function toggleProductActive(productId, active) {
       if (!can("canChangeProductStatus")) {
         showMessage("Nincs jogosultságod termék aktív/passzív állításához.", true);
@@ -935,11 +1129,28 @@
       if (action === "delete-category") {
         await deleteCategory(id);
       }
+
+      if (action === "move-category-up") {
+        await moveCategory(id, -1);
+      }
+
+      if (action === "move-category-down") {
+        await moveCategory(id, 1);
+      }
+
+      if (action === "move-product-up") {
+        await moveProduct(id, -1);
+      }
+
+      if (action === "move-product-down") {
+        await moveProduct(id, 1);
+      }
     });
 
     saveProductBtn.addEventListener("click", saveProduct);
     resetBtn.addEventListener("click", () => resetForm(true));
     searchInput.addEventListener("input", renderProducts);
+    categoryInput.addEventListener("change", rebuildInsertOptions);
     addCategoryBtn.addEventListener("click", addCategory);
 
     onAuthStateChanged(auth, async (user) => {

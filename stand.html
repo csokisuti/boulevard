@@ -566,6 +566,68 @@
       return String(row.categoryAtShift || "Egyéb").trim() || "Egyéb";
     }
 
+    function hasSortOrder(value) {
+      return value !== "" && value !== null && value !== undefined && Number.isFinite(Number(value));
+    }
+
+    function categorySortValue(category) {
+      if (category && hasSortOrder(category.sortOrder)) return toNumber(category.sortOrder);
+
+      const byName = [...categories].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      const index = byName.findIndex(item => item.id === category?.id || item.name === category?.name);
+
+      return index >= 0 ? (index + 1) * 1000 : 999999;
+    }
+
+    function categorySortValueByName(name) {
+      const normalized = String(name || "Egyéb").trim() || "Egyéb";
+      const category = categories.find(item => String(item.name || "") === normalized);
+
+      if (category) return categorySortValue(category);
+
+      return 999999;
+    }
+
+    function categoryCompareByOrder(a, b) {
+      const orderCompare = categorySortValue(a) - categorySortValue(b);
+      if (orderCompare !== 0) return orderCompare;
+
+      return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
+    }
+
+    function productSortValue(product) {
+      if (product && hasSortOrder(product.sortOrder)) return toNumber(product.sortOrder);
+      if (product && hasSortOrder(product.sortOrderAtShift)) return toNumber(product.sortOrderAtShift);
+
+      return 999999;
+    }
+
+    function productCompareByOrder(a, b) {
+      const categoryCompare = categorySortValueByName(a.category || a.categoryAtShift || "Egyéb") - categorySortValueByName(b.category || b.categoryAtShift || "Egyéb");
+      if (categoryCompare !== 0) return categoryCompare;
+
+      const productOrderCompare = productSortValue(a) - productSortValue(b);
+      if (productOrderCompare !== 0) return productOrderCompare;
+
+      return String(a.name || a.productNameAtShift || "").localeCompare(String(b.name || b.productNameAtShift || ""), "hu", { sensitivity: "base" });
+    }
+
+    function nextCategorySortOrder() {
+      return categories.length ? Math.max(...categories.map(category => categorySortValue(category))) + 1000 : 1000;
+    }
+
+    function nextProductSortOrderForCategory(category) {
+      const normalizedCategory = String(category || "Egyéb").trim() || "Egyéb";
+      const sameCategory = products.filter(product => String(product.category || "Egyéb").trim() === normalizedCategory && product.active !== false);
+
+      return sameCategory.length ? Math.max(...sameCategory.map(product => productSortValue(product))) + 1000 : 1000;
+    }
+
+    function rowCategorySortValue(row) {
+      if (hasSortOrder(row.categorySortOrderAtShift)) return toNumber(row.categorySortOrderAtShift);
+      return categorySortValueByName(categoryName(row));
+    }
+
     function getRowsForCategory(category) {
       return rows.filter(row => categoryName(row) === category);
     }
@@ -739,7 +801,7 @@
         categories.push({ id: item.id, ...item.data() });
       });
 
-      categories.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      categories.sort(categoryCompareByOrder);
       renderQuickCategoryOptions();
     }
 
@@ -790,11 +852,11 @@
         if (data.active !== false) loadedProducts.push({ id: item.id, ...data });
       });
 
-      loadedProducts.sort((a, b) => {
-        const categoryCompare = String(a.category || "Egyéb").localeCompare(String(b.category || "Egyéb"), "hu", { sensitivity: "base" });
-        if (categoryCompare !== 0) return categoryCompare;
-        return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
+      loadedProducts.forEach(product => {
+        product.categorySortOrder = categorySortValueByName(product.category || "Egyéb");
       });
+
+      loadedProducts.sort(productCompareByOrder);
 
       localStorage.setItem("boulevardProductsCacheV1", JSON.stringify({
         version: currentCatalogVersion,
@@ -953,6 +1015,7 @@
         productNameAtShift: product.name || "",
         unitAtShift: product.unit || "db",
         categoryAtShift: product.category || "",
+        categorySortOrderAtShift: product.categorySortOrder ?? categorySortValueByName(product.category || "Egyéb"),
         sortOrderAtShift: product.sortOrder || 0,
         openingAuto: opening,
         openingFinal: opening,
@@ -1101,6 +1164,7 @@
         productNameAtShift: item.productNameAtShift || "",
         unitAtShift: item.unitAtShift || "db",
         categoryAtShift: item.categoryAtShift || "",
+        categorySortOrderAtShift: item.categorySortOrderAtShift ?? categorySortValueByName(item.categoryAtShift || "Egyéb"),
         sortOrderAtShift: item.sortOrderAtShift || 0,
         openingAuto: item.openingAuto ?? 0,
         openingFinal: item.openingFinal ?? item.openingAuto ?? 0,
@@ -1117,8 +1181,15 @@
 
     function sortRowsForStand() {
       rows.sort((a, b) => {
-        const categoryCompare = categoryName(a).localeCompare(categoryName(b), "hu", { sensitivity: "base" });
-        if (categoryCompare !== 0) return categoryCompare;
+        const categoryOrderCompare = rowCategorySortValue(a) - rowCategorySortValue(b);
+        if (categoryOrderCompare !== 0) return categoryOrderCompare;
+
+        const categoryNameCompare = categoryName(a).localeCompare(categoryName(b), "hu", { sensitivity: "base" });
+        if (categoryNameCompare !== 0) return categoryNameCompare;
+
+        const productOrderCompare = toNumber(a.sortOrderAtShift) - toNumber(b.sortOrderAtShift);
+        if (productOrderCompare !== 0) return productOrderCompare;
+
         return String(a.productNameAtShift || "").localeCompare(String(b.productNameAtShift || ""), "hu", { sensitivity: "base" });
       });
     }
@@ -1138,6 +1209,7 @@
           productNameAtShift: item?.productNameAtShift || product.name || "",
           unitAtShift: item?.unitAtShift || product.unit || "db",
           categoryAtShift: item?.categoryAtShift || product.category || "",
+          categorySortOrderAtShift: item?.categorySortOrderAtShift ?? categorySortValueByName(item?.categoryAtShift || product.category || "Egyéb"),
           sortOrderAtShift: item?.sortOrderAtShift || product.sortOrder || 0,
           openingAuto: item?.openingAuto ?? 0,
           openingFinal: item?.openingFinal ?? item?.openingAuto ?? 0,
@@ -1619,6 +1691,7 @@
         productNameAtShift: row.productNameAtShift,
         unitAtShift: row.unitAtShift,
         categoryAtShift: row.categoryAtShift,
+        categorySortOrderAtShift: rowCategorySortValue(row),
         sortOrderAtShift: row.sortOrderAtShift,
         openingAuto: toNumber(row.openingAuto),
         openingFinal: toNumber(row.openingFinal),
@@ -2428,6 +2501,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       const batch = writeBatch(db);
       const productRef = doc(collection(db, "products"));
+      const categoryExists = categories.some(item => String(item.name || "").toLowerCase() === category.toLowerCase());
+      const effectiveCategorySortOrder = categoryExists ? categorySortValueByName(category) : nextCategorySortOrder();
       const product = {
         id: productRef.id,
         name,
@@ -2436,7 +2511,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         salePrice,
         purchasePrice,
         active: true,
-        sortOrder: Date.now(),
+        categorySortOrder: effectiveCategorySortOrder,
+        sortOrder: nextProductSortOrderForCategory(category),
         adminReviewNeeded: !can("canReviewProducts"),
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
@@ -2453,6 +2529,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         const categoryRef = doc(collection(db, "categories"));
         batch.set(categoryRef, {
           name: newCategory,
+          sortOrder: effectiveCategorySortOrder,
           createdAt: serverTimestamp(),
           createdBy: currentUser.uid,
           createdByName: currentUserData.name
