@@ -20,20 +20,52 @@
       <h2>Főmenü</h2>
       <div id="menu" class="menu-grid"></div>
     </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Lezárt standok</h2>
+          <p id="closedShiftsMessage">Betöltés...</p>
+        </div>
+        <button id="refreshClosedShiftsBtn" class="secondary-dark-btn">Frissítés</button>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Dátum</th>
+              <th>Név</th>
+              <th>Lezárta</th>
+              <th>Eladási érték</th>
+              <th>Művelet</th>
+            </tr>
+          </thead>
+          <tbody id="closedShiftsBody"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
     const userInfo = document.getElementById("userInfo");
     const menu = document.getElementById("menu");
     const logoutBtn = document.getElementById("logoutBtn");
+    const closedShiftsBody = document.getElementById("closedShiftsBody");
+    const closedShiftsMessage = document.getElementById("closedShiftsMessage");
+    const refreshClosedShiftsBtn = document.getElementById("refreshClosedShiftsBtn");
 
     logoutBtn.addEventListener("click", async () => {
       await signOut(auth);
       window.location.href = "login.html";
+    });
+
+    refreshClosedShiftsBtn.addEventListener("click", async () => {
+      await loadClosedShifts();
     });
 
     function addMenuItem(title, text, href) {
@@ -42,6 +74,70 @@
       a.href = href;
       a.innerHTML = `<strong>${title}</strong><span>${text}</span>`;
       menu.appendChild(a);
+    }
+
+    function formatMoney(value) {
+      return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function formatDate(value) {
+      if (!value) return "-";
+      const date = value.toDate ? value.toDate() : new Date(value);
+      return date.toLocaleString("hu-HU");
+    }
+
+    async function loadClosedShifts() {
+      closedShiftsMessage.textContent = "Betöltés...";
+      closedShiftsBody.innerHTML = `<tr><td colspan="5">Betöltés...</td></tr>`;
+
+      try {
+        const shiftsQuery = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(30));
+        const snap = await getDocs(shiftsQuery);
+        const shifts = [];
+
+        snap.forEach(item => {
+          const data = item.data();
+
+          if (data.status === "closed") {
+            shifts.push({
+              id: item.id,
+              ...data
+            });
+          }
+        });
+
+        closedShiftsBody.innerHTML = "";
+
+        if (!shifts.length) {
+          closedShiftsMessage.textContent = "Még nincs lezárt stand.";
+          closedShiftsBody.innerHTML = `<tr><td colspan="5">Nincs lezárt stand.</td></tr>`;
+          return;
+        }
+
+        closedShiftsMessage.textContent = `Utolsó ${shifts.length} lezárt stand`;
+
+        shifts.forEach(shift => {
+          const tr = document.createElement("tr");
+          const shiftName = shift.shiftLabel || "Lezárt műszak";
+          const closedByName = shift.closedByName || "-";
+
+          tr.innerHTML = `
+            <td>${formatDate(shift.closedAt)}</td>
+            <td>${shiftName}</td>
+            <td>${closedByName}</td>
+            <td>${formatMoney(shift.totalSalesValue)}</td>
+            <td>
+              <a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}">Megnyitás</a>
+            </td>
+          `;
+
+          closedShiftsBody.appendChild(tr);
+        });
+      } catch (error) {
+        console.error(error);
+        closedShiftsMessage.textContent = "Nem sikerült betölteni a lezárt standokat.";
+        closedShiftsBody.innerHTML = `<tr><td colspan="5">Hiba történt betöltés közben.</td></tr>`;
+      }
     }
 
     onAuthStateChanged(auth, async (user) => {
@@ -77,6 +173,8 @@
         addMenuItem("Riportok", "Árrés, fogyás, dolgozói teljesítmény", "reports.html");
         addMenuItem("Felhasználók", "Jogosultságok kezelése", "users.html");
       }
+
+      await loadClosedShifts();
     });
   </script>
 </body>
