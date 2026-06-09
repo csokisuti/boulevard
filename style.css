@@ -42,12 +42,14 @@ label {
   font-weight: bold;
 }
 
-input {
+input,
+select {
   width: 100%;
   padding: 13px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   font-size: 16px;
+  background: white;
 }
 
 button {
@@ -113,6 +115,7 @@ button:hover {
   border-radius: 18px;
   padding: 24px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.06);
+  margin-bottom: 24px;
 }
 
 .menu-grid {
@@ -147,6 +150,7 @@ button:hover {
   display: block;
   color: #6b7280;
 }
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -235,6 +239,12 @@ button:hover {
   width: 100px;
 }
 
+.disabled-input {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
 .small-btn {
   width: auto;
   margin: 0 6px 0 0;
@@ -299,6 +309,47 @@ button:hover {
   min-width: 1250px;
 }
 
+.small-link-btn {
+  display: inline-block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #111827;
+  color: white;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.small-link-btn:hover {
+  background: #374151;
+}
+
+.category-manager {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+}
+
+.category-tools {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.category-tools button {
+  width: auto;
+  margin-top: 0;
+}
+
+.category-row td {
+  background: #111827;
+  color: white;
+  font-weight: bold;
+  font-size: 15px;
+  padding: 12px;
+}
+
 @media (max-width: 700px) {
   .topbar {
     align-items: flex-start;
@@ -319,32 +370,12 @@ button:hover {
   .section-header input {
     max-width: 100%;
   }
-}
-.small-link-btn {
-  display: inline-block;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: #111827;
-  color: white;
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: bold;
-}
 
-.small-link-btn:hover {
-  background: #374151;
-}
-.small-link-btn {
-  display: inline-block;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: #111827;
-  color: white;
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: bold;
-}
+  .category-manager {
+    grid-template-columns: 1fr;
+  }
 
-.small-link-btn:hover {
-  background: #374151;
+  .category-tools button {
+    width: 100%;
+  }
 }
