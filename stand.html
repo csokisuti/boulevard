@@ -1539,6 +1539,44 @@
       });
     }
 
+
+    function canUseZeroConsumptionShortcut() {
+      if (isOpenShift()) return can("canSaveShift");
+      if (isClosedShift()) return can("canModifyClosedShift");
+      return false;
+    }
+
+    function quantityInputValue(value) {
+      const n = Number(value || 0);
+      if (Number.isInteger(n)) return String(n);
+      return String(Number(n.toFixed(3))).replace(".", ",");
+    }
+
+    function zeroConsumptionRemaining(row) {
+      if (isCounterUnit(row)) return toNumber(row.openingFinal);
+      return toNumber(row.openingFinal) + toNumber(row.received);
+    }
+
+    function setRowZeroConsumption(row) {
+      row.remaining = quantityInputValue(zeroConsumptionRemaining(row));
+    }
+
+    function setCategoryZeroConsumption(category) {
+      if (!canUseZeroConsumptionShortcut()) {
+        showMessage("Nincs jogosultságod a maradványok gyors kitöltéséhez.", true);
+        return;
+      }
+
+      const categoryRows = getRowsForCategory(category);
+
+      categoryRows.forEach(row => {
+        setRowZeroConsumption(row);
+      });
+
+      showMessage(`${category} kategória 0 fogyásra állítva. Mentéshez nyomd meg a Mentés gombot.`);
+      renderRows();
+    }
+
     function renderCategoryHeader(category) {
       const stats = categoryStats(category);
       const collapsed = !!collapsedCategories[category];
@@ -1554,6 +1592,7 @@
           <span class="category-title">${escapeHtml(category)}</span>
           <span class="category-total">Összesen: ${formatMoney(stats.total)}</span>
           <span class="category-status">${stats.filled}/${stats.all} kitöltve</span>
+          ${canUseZeroConsumptionShortcut() ? `<button class="category-zero-btn" data-action="zero-category-consumption" data-category="${escapeHtml(category)}" title="A teljes kategória maradványát úgy tölti ki, hogy 0 legyen a fogyás">✓ 0 fogyás</button>` : ""}
         </td>
       `;
 
@@ -1622,7 +1661,12 @@
           <td>${receivedCell}</td>
           <td class="received-note-cell">${renderReceivedNoteCell(row)}</td>
           <td class="calc-total">${counter ? "—" : formatNumber(c.total)}</td>
-          <td><input class="table-input active-input" data-field="remaining" value="${escapeHtml(row.remaining)}"></td>
+          <td>
+            <div class="remaining-cell-wrap">
+              <input class="table-input active-input remaining-input" data-field="remaining" value="${escapeHtml(row.remaining)}">
+              ${canUseZeroConsumptionShortcut() ? `<button class="zero-consumption-btn" data-action="zero-row-consumption" data-index="${index}" title="Nincs változás / 0 fogyás">✓</button>` : ""}
+            </div>
+          </td>
           <td class="calc-consumption">${formatNumber(c.consumption)}</td>
           <td class="calc-current">${formatNumber(c.currentStock)}</td>
           <td>${inputWithEdit(row, index, "salePriceAtShift", row.salePriceAtShift, "price-input")}</td>
@@ -2724,6 +2768,37 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         const category = categoryButton.dataset.category;
         collapsedCategories[category] = !collapsedCategories[category];
         renderRows();
+        return;
+      }
+
+      const categoryZeroButton = event.target.closest("[data-action='zero-category-consumption']");
+
+      if (categoryZeroButton) {
+        setCategoryZeroConsumption(categoryZeroButton.dataset.category);
+        return;
+      }
+
+      const zeroButton = event.target.closest("[data-action='zero-row-consumption']");
+
+      if (zeroButton) {
+        if (!canUseZeroConsumptionShortcut()) {
+          showMessage("Nincs jogosultságod a maradvány gyors kitöltéséhez.", true);
+          return;
+        }
+
+        const index = Number(zeroButton.dataset.index);
+        const row = rows[index];
+        const tr = zeroButton.closest("tr");
+
+        if (!row || !tr) return;
+
+        setRowZeroConsumption(row);
+
+        const input = tr.querySelector("input[data-field='remaining']");
+        if (input) input.value = row.remaining;
+
+        updateRowDisplay(tr, row);
+        showMessage(`${row.productNameAtShift} 0 fogyásra állítva. Mentéshez nyomd meg a Mentés gombot.`);
         return;
       }
 
