@@ -148,6 +148,10 @@
           <span>Pultforgalom</span>
           <strong id="financeProductSales">0 Ft</strong>
         </div>
+        <div class="finance-card positive">
+          <span>Előző stand leadó</span>
+          <strong id="financePreviousHandover">0 Ft</strong>
+        </div>
         <div class="finance-card negative">
           <span>Bankkártya</span>
           <strong id="financeCardPayment">0 Ft</strong>
@@ -180,9 +184,58 @@
           <span>Várható készpénz</span>
           <strong id="financeExpectedCash">0 Ft</strong>
         </div>
+        <div class="finance-card">
+          <span>Leadó</span>
+          <strong id="financeHandoverAmount">0 Ft</strong>
+        </div>
+        <div class="finance-card">
+          <span>Eltérés</span>
+          <strong id="financeHandoverDifference">0 Ft</strong>
+        </div>
       </div>
 
       <div id="financeFormBox">
+        <div class="finance-block">
+          <h3>Egyéb pénzmozgás és tartozás</h3>
+
+          <div class="form-grid">
+            <div>
+              <label for="moneyType">Típus</label>
+              <select id="moneyType">
+                <option value="income">Bevétel</option>
+                <option value="expense">Kiadás</option>
+                <option value="debt_create">Új tartozás</option>
+                <option value="debt_payment">Tartozás befizetés</option>
+              </select>
+            </div>
+
+            <div id="debtSelectBox" style="display:none;">
+              <label for="debtSelect">Tartozás</label>
+              <select id="debtSelect"></select>
+            </div>
+
+            <div>
+              <label for="moneyPerson">Név / partner</label>
+              <input id="moneyPerson" type="text" placeholder="pl. Gyuri">
+            </div>
+
+            <div>
+              <label for="moneyAmount">Összeg</label>
+              <input id="moneyAmount" type="number" min="0">
+            </div>
+
+            <div>
+              <label for="moneyNote">Megjegyzés</label>
+              <input id="moneyNote" type="text" placeholder="pl. tartozás, visszafizetés, beszerzés">
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button id="addMoneyMovementBtn">Pénzmozgás mentése</button>
+            <a class="small-link-btn" href="debts.html">Tartozások oldal</a>
+          </div>
+        </div>
+
         <div class="finance-block">
           <h3>Bankkártya</h3>
           <p class="muted-cell">A bankkártyás összeg levonódik a várható készpénzből. Több nap külön rögzíthető.</p>
@@ -197,11 +250,6 @@
               <label for="cardAmount">Összeg</label>
               <input id="cardAmount" type="number" min="0">
             </div>
-
-            <div>
-              <label for="cardNote">Megjegyzés</label>
-              <input id="cardNote" type="text" placeholder="pl. POS zárás">
-            </div>
           </div>
 
           <div class="button-row">
@@ -215,7 +263,6 @@
                   <th>Nap</th>
                   <th>Összeg</th>
                   <th>Hatás</th>
-                  <th>Megjegyzés</th>
                   <th>Rögzítette</th>
                 </tr>
               </thead>
@@ -307,43 +354,26 @@
         </div>
 
         <div class="finance-block">
-          <h3>Egyéb pénzmozgás és tartozás</h3>
+          <h3>Leadó / átadott készpénz</h3>
+          <p class="muted-cell">Ezt a rendszer a következő standba automatikusan átviszi „Előző stand leadó” néven.</p>
 
           <div class="form-grid">
             <div>
-              <label for="moneyType">Típus</label>
-              <select id="moneyType">
-                <option value="income">Bevétel</option>
-                <option value="expense">Kiadás</option>
-                <option value="debt_create">Új tartozás</option>
-                <option value="debt_payment">Tartozás befizetés</option>
-              </select>
-            </div>
-
-            <div id="debtSelectBox" style="display:none;">
-              <label for="debtSelect">Tartozás</label>
-              <select id="debtSelect"></select>
+              <label for="handoverAmountInput">Leadó összeg</label>
+              <input id="handoverAmountInput" type="number" min="0">
             </div>
 
             <div>
-              <label for="moneyPerson">Név / partner</label>
-              <input id="moneyPerson" type="text" placeholder="pl. Gyuri">
-            </div>
-
-            <div>
-              <label for="moneyAmount">Összeg</label>
-              <input id="moneyAmount" type="number" min="0">
-            </div>
-
-            <div>
-              <label for="moneyNote">Megjegyzés</label>
-              <input id="moneyNote" type="text" placeholder="pl. tartozás, visszafizetés, beszerzés">
+              <label>Eltérés</label>
+              <div class="summary-box">
+                <strong>Várható készpénz - leadó</strong>
+                <span id="handoverDifferenceBox">0 Ft</span>
+              </div>
             </div>
           </div>
 
           <div class="button-row">
-            <button id="addMoneyMovementBtn">Pénzmozgás mentése</button>
-            <a class="small-link-btn" href="debts.html">Tartozások oldal</a>
+            <button id="saveHandoverBtn">Leadó mentése</button>
           </div>
         </div>
       </div>
@@ -425,6 +455,7 @@
     const financeDetails = document.getElementById("financeDetails");
     const financeFormBox = document.getElementById("financeFormBox");
     const financeProductSales = document.getElementById("financeProductSales");
+    const financePreviousHandover = document.getElementById("financePreviousHandover");
     const financeCardPayment = document.getElementById("financeCardPayment");
     const financeLottoTurnover = document.getElementById("financeLottoTurnover");
     const financeRepi = document.getElementById("financeRepi");
@@ -433,9 +464,10 @@
     const financeDebtCreated = document.getElementById("financeDebtCreated");
     const financeDebtPaid = document.getElementById("financeDebtPaid");
     const financeExpectedCash = document.getElementById("financeExpectedCash");
+    const financeHandoverAmount = document.getElementById("financeHandoverAmount");
+    const financeHandoverDifference = document.getElementById("financeHandoverDifference");
     const cardDate = document.getElementById("cardDate");
     const cardAmount = document.getElementById("cardAmount");
-    const cardNote = document.getElementById("cardNote");
     const addCardPaymentBtn = document.getElementById("addCardPaymentBtn");
     const cardPaymentsBody = document.getElementById("cardPaymentsBody");
     const lottoDate = document.getElementById("lottoDate");
@@ -457,6 +489,9 @@
     const addMoneyMovementBtn = document.getElementById("addMoneyMovementBtn");
     const moneyMovementsBody = document.getElementById("moneyMovementsBody");
     const openDebtsBody = document.getElementById("openDebtsBody");
+    const handoverAmountInput = document.getElementById("handoverAmountInput");
+    const handoverDifferenceBox = document.getElementById("handoverDifferenceBox");
+    const saveHandoverBtn = document.getElementById("saveHandoverBtn");
 
     const params = new URLSearchParams(window.location.search);
     const shiftIdFromUrl = params.get("shiftId");
@@ -576,6 +611,7 @@
       if (type === "card_payment") return -amount;
       if (type === "lotto_turnover") return amount;
       if (type === "repi") return -amount;
+      if (type === "previous_handover") return amount;
       return 0;
     }
 
@@ -587,6 +623,7 @@
       if (type === "card_payment") return "Bankkártya";
       if (type === "lotto_turnover") return "Lottó forgalom";
       if (type === "repi") return "Repi";
+      if (type === "previous_handover") return "Előző stand leadó";
       return type || "-";
     }
 
@@ -991,6 +1028,7 @@
 
       const previousShift = await getLastClosedShift();
       const previousItems = previousShift ? await loadShiftItems(previousShift.id) : new Map();
+      const previousHandover = previousShift ? toNumber(previousShift.handoverAmount) : 0;
       const shiftRef = doc(collection(db, "shifts"));
       const batch = writeBatch(db);
       const shiftLabel = `${formatBusinessDate(selectedDate)} - ${assignedUser.name || assignedUser.email || "Stand"}`;
@@ -1015,7 +1053,10 @@
         totalCardPayment: 0,
         totalLottoTurnover: 0,
         totalRepi: 0,
-        totalCashExpected: 0,
+        totalPreviousHandover: previousHandover,
+        totalCashExpected: previousHandover,
+        handoverAmount: 0,
+        handoverDifference: previousHandover,
         createdAt: serverTimestamp()
       };
 
@@ -1034,6 +1075,25 @@
         batch.set(itemRef, productShiftItemData(product, opening));
       });
 
+      if (previousHandover > 0 && previousShift) {
+        const movementRef = doc(collection(db, "shifts", shiftRef.id, "moneyMovements"));
+
+        batch.set(movementRef, {
+          type: "previous_handover",
+          amount: previousHandover,
+          personName: "Előző stand leadó",
+          note: previousShift.shiftLabel || "",
+          movementDate: selectedDate,
+          previousShiftId: previousShift.id,
+          previousShiftLabel: previousShift.shiftLabel || "",
+          shiftId: shiftRef.id,
+          shiftLabel,
+          createdAt: serverTimestamp(),
+          createdBy: currentUser.uid,
+          createdByName: currentUserData.name
+        });
+      }
+
       const logRef = doc(collection(db, "logs"));
       batch.set(logRef, {
         action: "shift_opened",
@@ -1044,6 +1104,7 @@
           assignedUserId: assignedUser.id,
           assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
           previousShiftId: previousShift ? previousShift.id : "",
+          previousHandover,
           openDebtsCarried: openDebts.map(debt => ({
             debtId: debt.id,
             name: debt.name || "",
@@ -1223,7 +1284,8 @@
       const cardPayment = moneyMovements.filter(item => item.type === "card_payment").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const lottoTurnover = moneyMovements.filter(item => item.type === "lotto_turnover").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const repi = moneyMovements.filter(item => item.type === "repi").reduce((sum, item) => sum + toNumber(item.amount), 0);
-      const expectedCash = productSales + income - expense - debtCreated + debtPaid - cardPayment + lottoTurnover - repi;
+      const previousHandover = moneyMovements.filter(item => item.type === "previous_handover").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const expectedCash = productSales + previousHandover + income - expense - debtCreated + debtPaid - cardPayment + lottoTurnover - repi;
 
       return {
         productSales,
@@ -1234,17 +1296,36 @@
         cardPayment,
         lottoTurnover,
         repi,
+        previousHandover,
         expectedCash
       };
     }
 
-    function renderMovementTable(type, body, emptyText, columns = "date") {
-      const list = moneyMovements.filter(item => item.type === type);
-      body.innerHTML = "";
+    function currentHandoverData() {
+      const totals = financeTotals();
+      const handoverAmount = toNumber(handoverAmountInput.value);
+      const handoverDifference = totals.expectedCash - handoverAmount;
+
+      return {
+        handoverAmount,
+        handoverDifference
+      };
+    }
+
+    function updateHandoverDisplay() {
+      const data = currentHandoverData();
+
+      financeHandoverAmount.textContent = formatMoney(data.handoverAmount);
+      financeHandoverDifference.textContent = formatMoney(data.handoverDifference);
+      handoverDifferenceBox.textContent = formatMoney(data.handoverDifference);
+    }
+
+    function renderCardPaymentsTable() {
+      const list = moneyMovements.filter(item => item.type === "card_payment");
+      cardPaymentsBody.innerHTML = "";
 
       if (!list.length) {
-        const colspan = columns === "repi" ? 5 : 5;
-        body.innerHTML = `<tr><td colspan="${colspan}">${emptyText}</td></tr>`;
+        cardPaymentsBody.innerHTML = `<tr><td colspan="4">Nincs rögzített bankkártya összeg.</td></tr>`;
         return;
       }
 
@@ -1253,25 +1334,66 @@
         const effect = movementEffect(item.type, amount);
         const tr = document.createElement("tr");
 
-        if (columns === "repi") {
-          tr.innerHTML = `
-            <td>${escapeHtml(item.personName || "")}</td>
-            <td>${formatMoney(amount)}</td>
-            <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
-            <td>${escapeHtml(item.note || "")}</td>
-            <td>${escapeHtml(item.createdByName || "")}</td>
-          `;
-        } else {
-          tr.innerHTML = `
-            <td>${item.movementDate ? formatBusinessDate(item.movementDate) : "-"}</td>
-            <td>${formatMoney(amount)}</td>
-            <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
-            <td>${escapeHtml(item.note || "")}</td>
-            <td>${escapeHtml(item.createdByName || "")}</td>
-          `;
-        }
+        tr.innerHTML = `
+          <td>${item.movementDate ? formatBusinessDate(item.movementDate) : "-"}</td>
+          <td>${formatMoney(amount)}</td>
+          <td class="negative-text">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
+          <td>${escapeHtml(item.createdByName || "")}</td>
+        `;
 
-        body.appendChild(tr);
+        cardPaymentsBody.appendChild(tr);
+      });
+    }
+
+    function renderLottoTurnoverTable() {
+      const list = moneyMovements.filter(item => item.type === "lotto_turnover");
+      lottoTurnoverBody.innerHTML = "";
+
+      if (!list.length) {
+        lottoTurnoverBody.innerHTML = `<tr><td colspan="5">Nincs rögzített lottó forgalom.</td></tr>`;
+        return;
+      }
+
+      list.forEach(item => {
+        const amount = toNumber(item.amount);
+        const effect = movementEffect(item.type, amount);
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+          <td>${item.movementDate ? formatBusinessDate(item.movementDate) : "-"}</td>
+          <td>${formatMoney(amount)}</td>
+          <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
+          <td>${escapeHtml(item.note || "")}</td>
+          <td>${escapeHtml(item.createdByName || "")}</td>
+        `;
+
+        lottoTurnoverBody.appendChild(tr);
+      });
+    }
+
+    function renderRepiTable() {
+      const list = moneyMovements.filter(item => item.type === "repi");
+      repiBody.innerHTML = "";
+
+      if (!list.length) {
+        repiBody.innerHTML = `<tr><td colspan="5">Nincs rögzített repi fogyasztás.</td></tr>`;
+        return;
+      }
+
+      list.forEach(item => {
+        const amount = toNumber(item.amount);
+        const effect = movementEffect(item.type, amount);
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+          <td>${escapeHtml(item.personName || "")}</td>
+          <td>${formatMoney(amount)}</td>
+          <td class="negative-text">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
+          <td>${escapeHtml(item.note || "")}</td>
+          <td>${escapeHtml(item.createdByName || "")}</td>
+        `;
+
+        repiBody.appendChild(tr);
       });
     }
 
@@ -1279,6 +1401,7 @@
       const totals = financeTotals();
 
       financeProductSales.textContent = formatMoney(totals.productSales);
+      financePreviousHandover.textContent = formatMoney(totals.previousHandover);
       financeCardPayment.textContent = `-${formatMoney(totals.cardPayment)}`;
       financeLottoTurnover.textContent = formatMoney(totals.lottoTurnover);
       financeRepi.textContent = `-${formatMoney(totals.repi)}`;
@@ -1288,9 +1411,9 @@
       financeDebtPaid.textContent = formatMoney(totals.debtPaid);
       financeExpectedCash.textContent = formatMoney(totals.expectedCash);
 
-      renderMovementTable("card_payment", cardPaymentsBody, "Nincs rögzített bankkártya összeg.");
-      renderMovementTable("lotto_turnover", lottoTurnoverBody, "Nincs rögzített lottó forgalom.");
-      renderMovementTable("repi", repiBody, "Nincs rögzített repi fogyasztás.", "repi");
+      renderCardPaymentsTable();
+      renderLottoTurnoverTable();
+      renderRepiTable();
 
       moneyMovementsBody.innerHTML = "";
 
@@ -1316,6 +1439,7 @@
         });
       }
 
+      updateHandoverDisplay();
       financeFormBox.style.display = isOpenShift() ? "" : "none";
     }
 
@@ -1544,9 +1668,11 @@
 
     function financialDetailsForLog() {
       const totals = financeTotals();
+      const handover = currentHandoverData();
 
       return {
         productSales: totals.productSales,
+        previousHandover: totals.previousHandover,
         cardPayment: totals.cardPayment,
         lottoTurnover: totals.lottoTurnover,
         repi: totals.repi,
@@ -1554,12 +1680,15 @@
         expense: totals.expense,
         debtCreated: totals.debtCreated,
         debtPaid: totals.debtPaid,
-        expectedCash: totals.expectedCash
+        expectedCash: totals.expectedCash,
+        handoverAmount: handover.handoverAmount,
+        handoverDifference: handover.handoverDifference
       };
     }
 
     async function updateShiftFinancialTotals(batch) {
       const totals = financeTotals();
+      const handover = currentHandoverData();
 
       batch.set(doc(db, "shifts", currentShift.id), {
         totalSalesValue: totals.productSales,
@@ -1570,7 +1699,10 @@
         totalCardPayment: totals.cardPayment,
         totalLottoTurnover: totals.lottoTurnover,
         totalRepi: totals.repi,
+        totalPreviousHandover: totals.previousHandover,
         totalCashExpected: totals.expectedCash,
+        handoverAmount: handover.handoverAmount,
+        handoverDifference: handover.handoverDifference,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
@@ -1797,6 +1929,7 @@
       const totalPurchaseValue = rows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
       const totalMarginValue = totalSalesValue - totalPurchaseValue;
       const financials = financeTotals();
+      const handover = currentHandoverData();
       const batch = writeBatch(db);
 
       rows.forEach(row => {
@@ -1819,7 +1952,13 @@
         totalCardPayment: financials.cardPayment,
         totalLottoTurnover: financials.lottoTurnover,
         totalRepi: financials.repi,
+        totalPreviousHandover: financials.previousHandover,
         totalCashExpected: financials.expectedCash,
+        handoverAmount: handover.handoverAmount,
+        handoverDifference: handover.handoverDifference,
+        handoverSavedAt: serverTimestamp(),
+        handoverSavedBy: currentUser.uid,
+        handoverSavedByName: currentUserData.name,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
@@ -1855,6 +1994,7 @@
           assignedUserName: currentShift.assignedUserName || "",
           negativeReceivedNotes: negativeReceivedNotes(),
           financials,
+          handover,
           totalSalesValue,
           totalPurchaseValue,
           totalMarginValue
@@ -1876,7 +2016,9 @@
       renderFinance();
 
       const totals = financeTotals();
+      const handover = currentHandoverData();
       const updateBatch = writeBatch(db);
+
       updateBatch.set(doc(db, "shifts", currentShift.id), {
         totalMoneyIncome: totals.income,
         totalMoneyExpense: totals.expense,
@@ -1885,11 +2027,15 @@
         totalCardPayment: totals.cardPayment,
         totalLottoTurnover: totals.lottoTurnover,
         totalRepi: totals.repi,
+        totalPreviousHandover: totals.previousHandover,
         totalCashExpected: totals.expectedCash,
+        handoverAmount: handover.handoverAmount,
+        handoverDifference: handover.handoverDifference,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
       }, { merge: true });
+
       await updateBatch.commit();
 
       showMessage(text);
@@ -1898,12 +2044,12 @@
     async function createSimpleMoneyMovement(type, amount, personName, note, movementDate) {
       if (!isOpenShift()) {
         showMessage("Pénzmozgást csak nyitott standhoz lehet rögzíteni.", true);
-        return;
+        return false;
       }
 
       if (amount <= 0) {
         showMessage("Az összegnek nagyobbnak kell lennie nullánál.", true);
-        return;
+        return false;
       }
 
       const movementRef = doc(collection(db, "shifts", currentShift.id, "moneyMovements"));
@@ -1942,22 +2088,23 @@
       });
 
       await batch.commit();
+      return true;
     }
 
     async function addCardPayment() {
       const amount = toNumber(cardAmount.value);
       const date = cardDate.value || currentShift?.businessDate || getTodayInputDate();
-      const note = cardNote.value.trim();
 
       if (!date) {
         showMessage("Bankkártyánál a nap kötelező.", true);
         return;
       }
 
-      await createSimpleMoneyMovement("card_payment", amount, "Bankkártya", note, date);
+      const saved = await createSimpleMoneyMovement("card_payment", amount, "Bankkártya", "", date);
+
+      if (!saved) return;
 
       cardAmount.value = "";
-      cardNote.value = "";
       cardDate.value = date;
 
       await refreshMoneyAfterSave("Bankkártya összeg mentve.");
@@ -1973,7 +2120,9 @@
         return;
       }
 
-      await createSimpleMoneyMovement("lotto_turnover", amount, "Lottó", note, date);
+      const saved = await createSimpleMoneyMovement("lotto_turnover", amount, "Lottó", note, date);
+
+      if (!saved) return;
 
       lottoAmount.value = "";
       lottoNote.value = "";
@@ -1992,7 +2141,9 @@
         return;
       }
 
-      await createSimpleMoneyMovement("repi", amount, person, note, "");
+      const saved = await createSimpleMoneyMovement("repi", amount, person, note, "");
+
+      if (!saved) return;
 
       repiPerson.value = "";
       repiAmount.value = "";
@@ -2152,6 +2303,48 @@
       debtSelectBox.style.display = "none";
 
       await refreshMoneyAfterSave("Pénzmozgás mentve.");
+    }
+
+    async function saveHandover() {
+      if (!isOpenShift()) {
+        showMessage("Leadót csak nyitott standnál lehet menteni.", true);
+        return;
+      }
+
+      const handover = currentHandoverData();
+
+      if (handover.handoverAmount < 0) {
+        showMessage("A leadó nem lehet negatív.", true);
+        return;
+      }
+
+      await setDoc(doc(db, "shifts", currentShift.id), {
+        handoverAmount: handover.handoverAmount,
+        handoverDifference: handover.handoverDifference,
+        handoverSavedAt: serverTimestamp(),
+        handoverSavedBy: currentUser.uid,
+        handoverSavedByName: currentUserData.name,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      await writeLog("handover_saved", {
+        shiftId: currentShift.id,
+        shiftLabel: currentShift.shiftLabel || "",
+        handoverAmount: handover.handoverAmount,
+        handoverDifference: handover.handoverDifference,
+        financials: financialDetailsForLog()
+      });
+
+      currentShift = {
+        ...currentShift,
+        handoverAmount: handover.handoverAmount,
+        handoverDifference: handover.handoverDifference
+      };
+
+      updateHandoverDisplay();
+      showMessage("Leadó mentve.");
     }
 
     async function quickAddProduct() {
@@ -2440,6 +2633,8 @@
       }
     });
 
+    handoverAmountInput.addEventListener("input", updateHandoverDisplay);
+
     saveDraftBtn.addEventListener("click", saveDraft);
     closeShiftBtn.addEventListener("click", closeShift);
     searchInput.addEventListener("input", renderRows);
@@ -2450,12 +2645,26 @@
     addCardPaymentBtn.addEventListener("click", addCardPayment);
     addLottoTurnoverBtn.addEventListener("click", addLottoTurnover);
     addRepiBtn.addEventListener("click", addRepi);
+    saveHandoverBtn.addEventListener("click", saveHandover);
 
     function setDefaultFinanceDates() {
       const value = currentShift?.businessDate || getTodayInputDate();
 
       if (!cardDate.value) cardDate.value = value;
       if (!lottoDate.value) lottoDate.value = value;
+    }
+
+    function setHandoverInputFromShift() {
+      if (!currentShift) {
+        handoverAmountInput.value = "";
+        return;
+      }
+
+      if (hasValue(currentShift.handoverAmount)) {
+        handoverAmountInput.value = currentShift.handoverAmount;
+      } else {
+        handoverAmountInput.value = "";
+      }
     }
 
     function updateHeader() {
@@ -2471,6 +2680,7 @@
       quickProductDetails.style.display = isOpenShift() ? "" : "none";
       quickPurchasePriceBox.style.display = isAdmin() ? "" : "none";
       setDefaultFinanceDates();
+      setHandoverInputFromShift();
 
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
@@ -2505,6 +2715,7 @@
       shiftDate.value = getTodayInputDate();
       cardDate.value = getTodayInputDate();
       lottoDate.value = getTodayInputDate();
+      handoverAmountInput.value = "";
       renderFinance();
 
       if (currentUser && users.some(user => user.id === currentUser.uid)) {
