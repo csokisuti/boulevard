@@ -66,6 +66,115 @@
       <div id="message"></div>
     </section>
 
+    <details class="panel collapsible-panel" id="financeDetails">
+      <summary>Pénzügyek</summary>
+
+      <div class="finance-summary-grid">
+        <div class="finance-card">
+          <span>Termék eladás</span>
+          <strong id="financeProductSales">0 Ft</strong>
+        </div>
+        <div class="finance-card positive">
+          <span>Egyéb bevétel</span>
+          <strong id="financeIncome">0 Ft</strong>
+        </div>
+        <div class="finance-card negative">
+          <span>Egyéb kiadás</span>
+          <strong id="financeExpense">0 Ft</strong>
+        </div>
+        <div class="finance-card negative">
+          <span>Új tartozás</span>
+          <strong id="financeDebtCreated">0 Ft</strong>
+        </div>
+        <div class="finance-card positive">
+          <span>Tartozás befizetés</span>
+          <strong id="financeDebtPaid">0 Ft</strong>
+        </div>
+        <div class="finance-card total">
+          <span>Várható pénztár</span>
+          <strong id="financeExpectedCash">0 Ft</strong>
+        </div>
+      </div>
+
+      <div id="financeFormBox">
+        <h3>Pénzmozgás rögzítése</h3>
+
+        <div class="form-grid">
+          <div>
+            <label for="moneyType">Típus</label>
+            <select id="moneyType">
+              <option value="income">Bevétel</option>
+              <option value="expense">Kiadás</option>
+              <option value="debt_create">Új tartozás</option>
+              <option value="debt_payment">Tartozás befizetés</option>
+            </select>
+          </div>
+
+          <div id="debtSelectBox" style="display:none;">
+            <label for="debtSelect">Tartozás</label>
+            <select id="debtSelect"></select>
+          </div>
+
+          <div>
+            <label for="moneyPerson">Név / partner</label>
+            <input id="moneyPerson" type="text" placeholder="pl. Gyuri">
+          </div>
+
+          <div>
+            <label for="moneyAmount">Összeg</label>
+            <input id="moneyAmount" type="number" min="0">
+          </div>
+
+          <div>
+            <label for="moneyNote">Megjegyzés</label>
+            <input id="moneyNote" type="text" placeholder="pl. tartozás, visszafizetés, beszerzés">
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="addMoneyMovementBtn">Pénzmozgás mentése</button>
+          <a class="small-link-btn" href="debts.html">Tartozások oldal</a>
+        </div>
+      </div>
+
+      <div class="finance-section">
+        <h3>Nyitott tartozások</h3>
+        <div class="table-wrapper">
+          <table class="data-table finance-table">
+            <thead>
+              <tr>
+                <th>Név</th>
+                <th>Eredeti összeg</th>
+                <th>Befizetve</th>
+                <th>Hátralék</th>
+                <th>Megjegyzés</th>
+              </tr>
+            </thead>
+            <tbody id="openDebtsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="finance-section">
+        <h3>Stand pénzmozgásai</h3>
+        <div class="table-wrapper">
+          <table class="data-table finance-table">
+            <thead>
+              <tr>
+                <th>Típus</th>
+                <th>Név / partner</th>
+                <th>Összeg</th>
+                <th>Hatás</th>
+                <th>Megjegyzés</th>
+                <th>Rögzítette</th>
+              </tr>
+            </thead>
+            <tbody id="moneyMovementsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
     <details class="panel collapsible-panel" id="quickProductDetails" style="display:none;">
       <summary>+ Új termék felvitele stand közben</summary>
 
@@ -167,6 +276,23 @@
     const quickPurchasePrice = document.getElementById("quickPurchasePrice");
     const quickPurchasePriceBox = document.getElementById("quickPurchasePriceBox");
     const quickAddProductBtn = document.getElementById("quickAddProductBtn");
+    const financeDetails = document.getElementById("financeDetails");
+    const financeFormBox = document.getElementById("financeFormBox");
+    const financeProductSales = document.getElementById("financeProductSales");
+    const financeIncome = document.getElementById("financeIncome");
+    const financeExpense = document.getElementById("financeExpense");
+    const financeDebtCreated = document.getElementById("financeDebtCreated");
+    const financeDebtPaid = document.getElementById("financeDebtPaid");
+    const financeExpectedCash = document.getElementById("financeExpectedCash");
+    const moneyType = document.getElementById("moneyType");
+    const debtSelectBox = document.getElementById("debtSelectBox");
+    const debtSelect = document.getElementById("debtSelect");
+    const moneyPerson = document.getElementById("moneyPerson");
+    const moneyAmount = document.getElementById("moneyAmount");
+    const moneyNote = document.getElementById("moneyNote");
+    const addMoneyMovementBtn = document.getElementById("addMoneyMovementBtn");
+    const moneyMovementsBody = document.getElementById("moneyMovementsBody");
+    const openDebtsBody = document.getElementById("openDebtsBody");
 
     const params = new URLSearchParams(window.location.search);
     const shiftIdFromUrl = params.get("shiftId");
@@ -180,6 +306,8 @@
     let categories = [];
     let rows = [];
     let originalRows = [];
+    let moneyMovements = [];
+    let openDebts = [];
     let collapsedCategories = {};
 
     backBtn.addEventListener("click", () => {
@@ -274,6 +402,22 @@
 
     function receivedNeedsNote(row) {
       return !isCounterUnit(row) && toNumber(row.received) < 0;
+    }
+
+    function movementEffect(type, amount) {
+      if (type === "income") return amount;
+      if (type === "expense") return -amount;
+      if (type === "debt_create") return -amount;
+      if (type === "debt_payment") return amount;
+      return 0;
+    }
+
+    function movementTypeLabel(type) {
+      if (type === "income") return "Bevétel";
+      if (type === "expense") return "Kiadás";
+      if (type === "debt_create") return "Új tartozás";
+      if (type === "debt_payment") return "Tartozás befizetés";
+      return type || "-";
     }
 
     function calc(row) {
@@ -540,6 +684,85 @@
       return map;
     }
 
+    async function loadMoneyMovements(shiftId) {
+      moneyMovements = [];
+
+      if (!shiftId) return;
+
+      const snap = await getDocs(collection(db, "shifts", shiftId, "moneyMovements"));
+
+      snap.forEach(item => {
+        moneyMovements.push({
+          id: item.id,
+          ...item.data()
+        });
+      });
+
+      moneyMovements.sort((a, b) => {
+        const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+        const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+        return bTime - aTime;
+      });
+    }
+
+    async function loadOpenDebts() {
+      openDebts = [];
+
+      const snap = await getDocs(collection(db, "debts"));
+
+      snap.forEach(item => {
+        const data = item.data();
+
+        if (data.status !== "paid") {
+          openDebts.push({
+            id: item.id,
+            ...data
+          });
+        }
+      });
+
+      openDebts.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      renderDebtSelect();
+      renderOpenDebts();
+    }
+
+    function renderDebtSelect() {
+      debtSelect.innerHTML = "";
+
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "Válassz tartozást";
+      debtSelect.appendChild(emptyOption);
+
+      openDebts.forEach(debt => {
+        const option = document.createElement("option");
+        option.value = debt.id;
+        option.textContent = `${debt.name || "-"} - hátralék: ${formatMoney(debt.remainingAmount)}`;
+        debtSelect.appendChild(option);
+      });
+    }
+
+    function renderOpenDebts() {
+      openDebtsBody.innerHTML = "";
+
+      if (!openDebts.length) {
+        openDebtsBody.innerHTML = `<tr><td colspan="5">Nincs nyitott tartozás.</td></tr>`;
+        return;
+      }
+
+      openDebts.forEach(debt => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(debt.name || "")}</td>
+          <td>${formatMoney(debt.originalAmount)}</td>
+          <td>${formatMoney(debt.paidAmount)}</td>
+          <td><strong>${formatMoney(debt.remainingAmount)}</strong></td>
+          <td>${escapeHtml(debt.note || "")}</td>
+        `;
+        openDebtsBody.appendChild(tr);
+      });
+    }
+
     function productShiftItemData(product, opening = 0) {
       return {
         productId: product.id,
@@ -614,6 +837,11 @@
         totalSalesValue: 0,
         totalPurchaseValue: 0,
         totalMarginValue: 0,
+        totalMoneyIncome: 0,
+        totalMoneyExpense: 0,
+        totalDebtCreated: 0,
+        totalDebtPaid: 0,
+        totalCashExpected: 0,
         createdAt: serverTimestamp()
       };
 
@@ -641,7 +869,12 @@
           businessDate: selectedDate,
           assignedUserId: assignedUser.id,
           assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
-          previousShiftId: previousShift ? previousShift.id : ""
+          previousShiftId: previousShift ? previousShift.id : "",
+          openDebtsCarried: openDebts.map(debt => ({
+            debtId: debt.id,
+            name: debt.name || "",
+            remainingAmount: toNumber(debt.remainingAmount)
+          }))
         },
         userId: currentUser.uid,
         userName: currentUserData.name,
@@ -803,6 +1036,60 @@
       };
     }
 
+    function financeTotals() {
+      const productSales = rows.reduce((sum, row) => sum + calc(row).salesValue, 0);
+      const income = moneyMovements.filter(item => item.type === "income").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const expense = moneyMovements.filter(item => item.type === "expense").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const debtCreated = moneyMovements.filter(item => item.type === "debt_create").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const debtPaid = moneyMovements.filter(item => item.type === "debt_payment").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const expectedCash = productSales + income - expense - debtCreated + debtPaid;
+
+      return {
+        productSales,
+        income,
+        expense,
+        debtCreated,
+        debtPaid,
+        expectedCash
+      };
+    }
+
+    function renderFinance() {
+      const totals = financeTotals();
+
+      financeProductSales.textContent = formatMoney(totals.productSales);
+      financeIncome.textContent = formatMoney(totals.income);
+      financeExpense.textContent = `-${formatMoney(totals.expense)}`;
+      financeDebtCreated.textContent = `-${formatMoney(totals.debtCreated)}`;
+      financeDebtPaid.textContent = formatMoney(totals.debtPaid);
+      financeExpectedCash.textContent = formatMoney(totals.expectedCash);
+
+      moneyMovementsBody.innerHTML = "";
+
+      if (!moneyMovements.length) {
+        moneyMovementsBody.innerHTML = `<tr><td colspan="6">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
+      } else {
+        moneyMovements.forEach(item => {
+          const amount = toNumber(item.amount);
+          const effect = movementEffect(item.type, amount);
+          const tr = document.createElement("tr");
+
+          tr.innerHTML = `
+            <td>${movementTypeLabel(item.type)}</td>
+            <td>${escapeHtml(item.personName || "")}</td>
+            <td>${formatMoney(amount)}</td>
+            <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
+            <td>${escapeHtml(item.note || "")}</td>
+            <td>${escapeHtml(item.createdByName || "")}</td>
+          `;
+
+          moneyMovementsBody.appendChild(tr);
+        });
+      }
+
+      financeFormBox.style.display = isOpenShift() ? "" : "none";
+    }
+
     function updateCategorySummaries() {
       document.querySelectorAll(".category-row").forEach(categoryRow => {
         const category = categoryRow.dataset.category;
@@ -928,6 +1215,7 @@
 
       updateTotalSales();
       updateCategorySummaries();
+      renderFinance();
     }
 
     function updateRowDisplay(tr, row) {
@@ -958,6 +1246,7 @@
 
       updateTotalSales();
       updateCategorySummaries();
+      renderFinance();
     }
 
     function updateTotalSales() {
@@ -1022,6 +1311,35 @@
           received: toNumber(row.received),
           note: String(row.receivedNote || "").trim()
         }));
+    }
+
+    function financialDetailsForLog() {
+      const totals = financeTotals();
+
+      return {
+        productSales: totals.productSales,
+        income: totals.income,
+        expense: totals.expense,
+        debtCreated: totals.debtCreated,
+        debtPaid: totals.debtPaid,
+        expectedCash: totals.expectedCash
+      };
+    }
+
+    async function updateShiftFinancialTotals(batch) {
+      const totals = financeTotals();
+
+      batch.set(doc(db, "shifts", currentShift.id), {
+        totalSalesValue: totals.productSales,
+        totalMoneyIncome: totals.income,
+        totalMoneyExpense: totals.expense,
+        totalDebtCreated: totals.debtCreated,
+        totalDebtPaid: totals.debtPaid,
+        totalCashExpected: totals.expectedCash,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
     }
 
     async function propagateRemainingChanges(changes) {
@@ -1187,6 +1505,7 @@
             shiftLabel: currentShift.shiftLabel || "",
             changes,
             negativeReceivedNotes: negativeReceivedNotes(),
+            financials: financialDetailsForLog(),
             totalSalesValue,
             totalPurchaseValue,
             totalMarginValue
@@ -1198,12 +1517,14 @@
         });
       }
 
+      await updateShiftFinancialTotals(batch);
       await batch.commit();
 
       if (!closed) {
         await writeLog("shift_draft_saved", {
           shiftId: currentShift.id,
-          negativeReceivedNotes: negativeReceivedNotes()
+          negativeReceivedNotes: negativeReceivedNotes(),
+          financials: financialDetailsForLog()
         });
 
         showMessage("Piszkozat mentve.");
@@ -1216,7 +1537,7 @@
         };
 
         setOriginalRows();
-        showMessage("Lezárt stand módosítása mentve, naplózva, a következő stand nyitója frissítve.");
+        showMessage("Lezárt stand módosítása mentve és naplózva.");
       }
     }
 
@@ -1240,6 +1561,7 @@
       const totalSalesValue = rows.reduce((sum, row) => sum + calc(row).salesValue, 0);
       const totalPurchaseValue = rows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
       const totalMarginValue = totalSalesValue - totalPurchaseValue;
+      const financials = financeTotals();
       const batch = writeBatch(db);
 
       rows.forEach(row => {
@@ -1255,6 +1577,11 @@
         totalSalesValue,
         totalPurchaseValue,
         totalMarginValue,
+        totalMoneyIncome: financials.income,
+        totalMoneyExpense: financials.expense,
+        totalDebtCreated: financials.debtCreated,
+        totalDebtPaid: financials.debtPaid,
+        totalCashExpected: financials.expectedCash,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
@@ -1289,6 +1616,7 @@
           assignedUserId: currentShift.assignedUserId || "",
           assignedUserName: currentShift.assignedUserName || "",
           negativeReceivedNotes: negativeReceivedNotes(),
+          financials,
           totalSalesValue,
           totalPurchaseValue,
           totalMarginValue
@@ -1302,6 +1630,174 @@
       await batch.commit();
 
       window.location.href = `stand.html?shiftId=${encodeURIComponent(currentShift.id)}`;
+    }
+
+    async function addMoneyMovement() {
+      if (!isOpenShift()) {
+        showMessage("Pénzmozgást csak nyitott standhoz lehet rögzíteni.", true);
+        return;
+      }
+
+      const type = moneyType.value;
+      const amount = toNumber(moneyAmount.value);
+      const personName = moneyPerson.value.trim();
+      const note = moneyNote.value.trim();
+      const selectedDebtId = debtSelect.value;
+
+      if (amount <= 0) {
+        showMessage("Az összegnek nagyobbnak kell lennie nullánál.", true);
+        return;
+      }
+
+      if (type === "debt_create" && !personName) {
+        showMessage("Új tartozásnál a név kötelező.", true);
+        return;
+      }
+
+      if (type === "debt_payment" && !selectedDebtId) {
+        showMessage("Tartozás befizetésnél válaszd ki a tartozást.", true);
+        return;
+      }
+
+      const batch = writeBatch(db);
+      let debtId = "";
+      let finalPersonName = personName;
+      let debtBefore = null;
+      let debtAfter = null;
+
+      if (type === "debt_create") {
+        const debtRef = doc(collection(db, "debts"));
+        debtId = debtRef.id;
+
+        const debtData = {
+          name: personName,
+          originalAmount: amount,
+          paidAmount: 0,
+          remainingAmount: amount,
+          status: "open",
+          note,
+          createdShiftId: currentShift.id,
+          createdShiftLabel: currentShift.shiftLabel || "",
+          createdAt: serverTimestamp(),
+          createdBy: currentUser.uid,
+          createdByName: currentUserData.name,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        };
+
+        debtAfter = debtData;
+        batch.set(debtRef, debtData);
+      }
+
+      if (type === "debt_payment") {
+        const debtRef = doc(db, "debts", selectedDebtId);
+        const debtSnap = await getDoc(debtRef);
+
+        if (!debtSnap.exists()) {
+          showMessage("Nem található a kiválasztott tartozás.", true);
+          return;
+        }
+
+        const debt = {
+          id: debtSnap.id,
+          ...debtSnap.data()
+        };
+
+        const remainingBefore = toNumber(debt.remainingAmount);
+
+        if (amount > remainingBefore) {
+          showMessage(`A befizetés nem lehet több, mint a hátralék: ${formatMoney(remainingBefore)}`, true);
+          return;
+        }
+
+        const paidAfter = toNumber(debt.paidAmount) + amount;
+        const remainingAfter = remainingBefore - amount;
+        const statusAfter = remainingAfter <= 0 ? "paid" : "partial";
+
+        debtId = selectedDebtId;
+        finalPersonName = debt.name || personName;
+        debtBefore = debt;
+        debtAfter = {
+          paidAmount: paidAfter,
+          remainingAmount: remainingAfter,
+          status: statusAfter
+        };
+
+        batch.set(debtRef, {
+          paidAmount: paidAfter,
+          remainingAmount: remainingAfter,
+          status: statusAfter,
+          lastPaymentShiftId: currentShift.id,
+          lastPaymentShiftLabel: currentShift.shiftLabel || "",
+          lastPaymentAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        }, { merge: true });
+      }
+
+      const movementRef = doc(collection(db, "shifts", currentShift.id, "moneyMovements"));
+      batch.set(movementRef, {
+        type,
+        amount,
+        personName: finalPersonName,
+        note,
+        debtId,
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.uid,
+        createdByName: currentUserData.name
+      });
+
+      const logRef = doc(collection(db, "logs"));
+      batch.set(logRef, {
+        action: "money_movement_created",
+        details: {
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          type,
+          amount,
+          effect: movementEffect(type, amount),
+          personName: finalPersonName,
+          note,
+          debtId,
+          debtBefore,
+          debtAfter
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+
+      moneyType.value = "income";
+      moneyPerson.value = "";
+      moneyAmount.value = "";
+      moneyNote.value = "";
+      debtSelect.value = "";
+      debtSelectBox.style.display = "none";
+
+      showMessage("Pénzmozgás mentve.");
+
+      await loadMoneyMovements(currentShift.id);
+      await loadOpenDebts();
+      renderFinance();
+
+      const totals = financeTotals();
+      const updateBatch = writeBatch(db);
+      updateBatch.set(doc(db, "shifts", currentShift.id), {
+        totalMoneyIncome: totals.income,
+        totalMoneyExpense: totals.expense,
+        totalDebtCreated: totals.debtCreated,
+        totalDebtPaid: totals.debtPaid,
+        totalCashExpected: totals.expectedCash,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+      await updateBatch.commit();
     }
 
     async function quickAddProduct() {
@@ -1567,12 +2063,36 @@
       }
     });
 
+    moneyType.addEventListener("change", () => {
+      const type = moneyType.value;
+      debtSelectBox.style.display = type === "debt_payment" ? "" : "none";
+
+      if (type === "debt_payment") {
+        moneyPerson.value = "";
+        moneyPerson.placeholder = "befizető neve automatikusan a tartozásból";
+      } else if (type === "debt_create") {
+        moneyPerson.placeholder = "pl. Gyuri";
+      } else {
+        moneyPerson.placeholder = "pl. Gyuri / beszállító / egyéb";
+      }
+    });
+
+    debtSelect.addEventListener("change", () => {
+      const debt = openDebts.find(item => item.id === debtSelect.value);
+
+      if (debt) {
+        moneyPerson.value = debt.name || "";
+        moneyAmount.value = toNumber(debt.remainingAmount);
+      }
+    });
+
     saveDraftBtn.addEventListener("click", saveDraft);
     closeShiftBtn.addEventListener("click", closeShift);
     searchInput.addEventListener("input", renderRows);
     openShiftBtn.addEventListener("click", openNewShift);
     quickAddProductBtn.addEventListener("click", quickAddProduct);
     applyProductUpdatesBtn.addEventListener("click", applyProductUpdatesToOpenShift);
+    addMoneyMovementBtn.addEventListener("click", addMoneyMovement);
 
     function updateHeader() {
       if (!currentShift) return;
@@ -1584,6 +2104,7 @@
       openShiftPanel.style.display = "none";
       standTablePanel.style.display = "";
       standActions.style.display = "";
+      financeDetails.style.display = "";
       quickProductDetails.style.display = isOpenShift() ? "" : "none";
       quickPurchasePriceBox.style.display = isAdmin() ? "" : "none";
 
@@ -1605,16 +2126,20 @@
       currentShift = null;
       rows = [];
       originalRows = [];
+      moneyMovements = [];
       shiftTitle.textContent = "Nincs nyitott stand";
       shiftInfo.textContent = "Új stand nyitásához töltsd ki a dátumot és válaszd ki, kié a stand.";
       totalSales.textContent = "0 Ft";
       openShiftPanel.style.display = "";
       standTablePanel.style.display = "none";
       standActions.style.display = "none";
+      financeDetails.style.display = "";
+      financeFormBox.style.display = "none";
       quickProductDetails.style.display = "none";
       productSyncPanel.style.display = "none";
       standBody.innerHTML = "";
       shiftDate.value = getTodayInputDate();
+      renderFinance();
 
       if (currentUser && users.some(user => user.id === currentUser.uid)) {
         assignedUserSelect.value = currentUser.uid;
@@ -1625,6 +2150,7 @@
       showMessage("");
       await loadUsers();
       await loadCategories();
+      await loadOpenDebts();
       products = await loadProductsCached();
 
       if (shiftIdFromUrl) {
@@ -1640,6 +2166,7 @@
         updateHeader();
 
         const itemMap = await loadShiftItems(currentShift.id);
+        await loadMoneyMovements(currentShift.id);
         mergeRows(itemMap);
         setOriginalRows();
         renderRows();
@@ -1670,6 +2197,7 @@
       updateHeader();
 
       const itemMap = await loadShiftItems(currentShift.id);
+      await loadMoneyMovements(currentShift.id);
       mergeRows(itemMap);
       setOriginalRows();
       renderRows();
