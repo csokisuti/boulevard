@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boulevard - Admin ellenőrzések</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Admin ellenőrzések</h1>
+      <p id="userInfo">Betöltés...</p>
+    </div>
+    <button id="backBtn" class="secondary-btn">Vissza</button>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Áttekintés</h2>
+          <p id="reviewInfo">Betöltés...</p>
+        </div>
+        <button id="refreshBtn" class="secondary-dark-btn">Frissítés</button>
+      </div>
+
+      <div class="finance-summary-grid admin-review-summary-grid">
+        <div class="finance-card negative">
+          <span>Ellenőrizendő termék</span>
+          <strong id="summaryProducts">0</strong>
+        </div>
+        <div class="finance-card negative">
+          <span>Nyitott fontos napló</span>
+          <strong id="summaryImportantLogs">0</strong>
+        </div>
+        <div class="finance-card">
+          <span>Lezárt stand módosítva</span>
+          <strong id="summaryModifiedShifts">0</strong>
+        </div>
+        <div class="finance-card total">
+          <span>Utolsó naplók</span>
+          <strong id="summaryAllLogs">0</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Ellenőrizendő termékek</h2>
+          <p>Dolgozó által felvitt vagy módosított termékek, amelyeket adminnak érdemes jóváhagyni.</p>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table products-table">
+          <thead>
+            <tr>
+              <th>Termék</th>
+              <th>Kategória</th>
+              <th>Egység</th>
+              <th>Eladási ár</th>
+              <th>Beszerzési ár</th>
+              <th>Létrehozta / módosította</th>
+              <th>Művelet</th>
+            </tr>
+          </thead>
+          <tbody id="reviewProductsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Fontos ellenőrzések</h2>
+          <p>Nyitó módosítás, lezárt stand módosítás, dolgozói termékfelvitel, pénzmozgás és tartozás.</p>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table admin-log-table">
+          <thead>
+            <tr>
+              <th>Időpont</th>
+              <th>Típus</th>
+              <th>Felhasználó</th>
+              <th>Részletek</th>
+              <th>Állapot</th>
+              <th>Művelet</th>
+            </tr>
+          </thead>
+          <tbody id="importantLogsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Utólag módosított lezárt standok</h2>
+          <p>Azok a lezárt standok, amelyeken később történt módosítás.</p>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Dátum</th>
+              <th>Stand</th>
+              <th>Utoljára módosította</th>
+              <th>Utolsó módosítás</th>
+              <th>Eladási érték</th>
+              <th>Leadó</th>
+              <th>Művelet</th>
+            </tr>
+          </thead>
+          <tbody id="modifiedShiftsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel passive-panel">
+      <div class="section-header">
+        <div>
+          <h2>Utolsó naplóbejegyzések</h2>
+          <p>Általános napló, szűrhető ellenőrzéshez.</p>
+        </div>
+        <div class="admin-filter-row">
+          <select id="actionFilter"></select>
+          <select id="reviewFilter">
+            <option value="all">Minden</option>
+            <option value="open">Csak nyitott</option>
+            <option value="reviewed">Csak ellenőrzött</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table admin-log-table">
+          <thead>
+            <tr>
+              <th>Időpont</th>
+              <th>Típus</th>
+              <th>Felhasználó</th>
+              <th>Részletek</th>
+              <th>Állapot</th>
+              <th>Művelet</th>
+            </tr>
+          </thead>
+          <tbody id="allLogsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div id="message"></div>
+  </main>
+
+  <script type="module">
+    import { auth, db } from "./firebase.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { hasPermission, roleLabel } from "./permissions.js";
+
+    const userInfo = document.getElementById("userInfo");
+    const backBtn = document.getElementById("backBtn");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const reviewInfo = document.getElementById("reviewInfo");
+    const summaryProducts = document.getElementById("summaryProducts");
+    const summaryImportantLogs = document.getElementById("summaryImportantLogs");
+    const summaryModifiedShifts = document.getElementById("summaryModifiedShifts");
+    const summaryAllLogs = document.getElementById("summaryAllLogs");
+    const reviewProductsBody = document.getElementById("reviewProductsBody");
+    const importantLogsBody = document.getElementById("importantLogsBody");
+    const modifiedShiftsBody = document.getElementById("modifiedShiftsBody");
+    const allLogsBody = document.getElementById("allLogsBody");
+    const actionFilter = document.getElementById("actionFilter");
+    const reviewFilter = document.getElementById("reviewFilter");
+    const message = document.getElementById("message");
+
+    let currentUser = null;
+    let currentUserData = null;
+    let reviewProducts = [];
+    let logs = [];
+    let modifiedShifts = [];
+
+    const importantActions = new Set([
+      "opening_changed",
+      "closed_shift_modified",
+      "product_created_from_stand",
+      "product_created",
+      "product_updated",
+      "product_status_changed",
+      "product_deleted",
+      "money_movement_created",
+      "debt_created_from_debts_page",
+      "debt_payment_from_debts_page",
+      "shift_closed"
+    ]);
+
+    const actionLabels = {
+      shift_opened: "Stand nyitva",
+      shift_closed: "Stand lezárva",
+      closed_shift_modified: "Lezárt stand módosítva",
+      opening_changed: "Nyitó módosítva",
+      money_movement_created: "Pénzmozgás",
+      product_created_from_stand: "Termék felvitele standból",
+      open_shift_product_updates_applied: "Terméklista-frissítés standra",
+      product_created: "Termék létrehozva",
+      product_updated: "Termék módosítva",
+      product_status_changed: "Termék státusz módosítva",
+      product_deleted: "Termék törölve",
+      product_reviewed: "Termék ellenőrizve",
+      category_created: "Kategória létrehozva",
+      category_deleted: "Kategória törölve",
+      debt_created_from_debts_page: "Tartozás felírva",
+      debt_payment_from_debts_page: "Tartozás befizetve",
+      user_permissions_updated: "Jogosultság módosítva",
+      user_status_updated: "Felhasználó státusz módosítva",
+      user_role_updated: "Felhasználó szerepkör módosítva",
+      log_reviewed: "Napló ellenőrizve"
+    };
+
+    backBtn.addEventListener("click", () => {
+      window.location.href = "dashboard.html";
+    });
+
+    refreshBtn.addEventListener("click", async () => {
+      await loadPageData();
+    });
+
+    actionFilter.addEventListener("change", renderAllLogs);
+    reviewFilter.addEventListener("change", renderAllLogs);
+
+    reviewProductsBody.addEventListener("click", async (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      if (button.dataset.action === "review-product") await markProductReviewed(button.dataset.id);
+    });
+
+    importantLogsBody.addEventListener("click", async (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      if (button.dataset.action === "review-log") await markLogReviewed(button.dataset.id);
+    });
+
+    allLogsBody.addEventListener("click", async (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      if (button.dataset.action === "review-log") await markLogReviewed(button.dataset.id);
+    });
+
+    function can(permission) {
+      return hasPermission(currentUserData, permission);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function toNumber(value) {
+      const n = Number(String(value || "0").replace(/,/g, "."));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function formatMoney(value) {
+      return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "-";
+      const date = value.toDate ? value.toDate() : new Date(value);
+      return date.toLocaleString("hu-HU");
+    }
+
+    function formatBusinessDate(value) {
+      if (!value) return "-";
+      const parts = String(value).split("-");
+      if (parts.length !== 3) return value;
+      return `${parts[0]}.${parts[1]}.${parts[2]}.`;
+    }
+
+    function actionLabel(action) {
+      return actionLabels[action] || action || "-";
+    }
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    function detailValue(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      if (typeof value === "number") return String(value);
+      if (typeof value === "boolean") return value ? "igen" : "nem";
+      if (value && value.toDate) return formatDateTime(value);
+      if (Array.isArray(value)) return value.length ? `${value.length} tétel` : "nincs";
+      if (typeof value === "object") return "részletek";
+      return String(value);
+    }
+
+    function detailLine(label, value) {
+      return `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(detailValue(value))}</div>`;
+    }
+
+    function moneyMovementLabel(type) {
+      if (type === "income") return "Bevétel";
+      if (type === "expense") return "Kiadás";
+      if (type === "debt_create") return "Új tartozás";
+      if (type === "debt_payment") return "Tartozás befizetés";
+      if (type === "card_payment") return "Bankkártya";
+      if (type === "lotto_turnover") return "Lottó";
+      if (type === "repi") return "Repi";
+      return type || "-";
+    }
+
+    function renderDetails(details = {}) {
+      if (!details || typeof details !== "object") return `<span class="muted-cell">Nincs részlet.</span>`;
+
+      const rows = [];
+
+      if (details.shiftLabel) rows.push(detailLine("Stand", details.shiftLabel));
+      if (details.businessDate) rows.push(detailLine("Dátum", details.businessDate));
+      if (details.productName) rows.push(detailLine("Termék", details.productName));
+      if (details.category) rows.push(detailLine("Kategória", details.category));
+      if (details.unit) rows.push(detailLine("Egység", details.unit));
+      if (details.type) rows.push(detailLine("Típus", moneyMovementLabel(details.type)));
+      if (details.personName) rows.push(detailLine("Név / partner", details.personName));
+      if (details.amount !== undefined) rows.push(detailLine("Összeg", formatMoney(details.amount)));
+      if (details.effect !== undefined) rows.push(detailLine("Hatás", formatMoney(details.effect)));
+      if (details.note) rows.push(detailLine("Megjegyzés", details.note));
+      if (details.openingAuto !== undefined) rows.push(detailLine("Automata nyitó", details.openingAuto));
+      if (details.openingFinal !== undefined) rows.push(detailLine("Módosított nyitó", details.openingFinal));
+      if (details.totalSalesValue !== undefined) rows.push(detailLine("Eladási érték", formatMoney(details.totalSalesValue)));
+      if (details.totalCashExpected !== undefined) rows.push(detailLine("Leadó", formatMoney(details.totalCashExpected)));
+
+      if (Array.isArray(details.changes) && details.changes.length) {
+        rows.push(`<div><strong>Módosítások:</strong></div>`);
+        details.changes.slice(0, 6).forEach(change => {
+          rows.push(`<div class="admin-detail-indent">${escapeHtml(change.productName || change.productId || "-")} - ${escapeHtml(change.fieldLabel || change.field || "-")}: ${escapeHtml(detailValue(change.before))} → ${escapeHtml(detailValue(change.after))}</div>`);
+        });
+        if (details.changes.length > 6) rows.push(`<div class="admin-detail-indent">+${details.changes.length - 6} további módosítás</div>`);
+      }
+
+      if (Array.isArray(details.negativeReceivedNotes) && details.negativeReceivedNotes.length) {
+        rows.push(`<div><strong>Negatív vételezés:</strong></div>`);
+        details.negativeReceivedNotes.slice(0, 4).forEach(item => {
+          rows.push(`<div class="admin-detail-indent">${escapeHtml(item.productName || "-")}: ${escapeHtml(detailValue(item.received))} - ${escapeHtml(item.note || "")}</div>`);
+        });
+      }
+
+      if (details.financials && typeof details.financials === "object") {
+        rows.push(detailLine("Számolt leadó", formatMoney(details.financials.calculatedHandover)));
+      }
+
+      if (!rows.length) {
+        Object.entries(details).slice(0, 8).forEach(([key, value]) => {
+          rows.push(detailLine(key, value));
+        });
+      }
+
+      return rows.join("");
+    }
+
+    function logStatusHtml(log) {
+      if (log.reviewed) {
+        return `<span class="status-pill ok">Ellenőrizve</span><div class="muted-cell">${escapeHtml(log.reviewedByName || "")}</div>`;
+      }
+      return `<span class="status-pill warning">Nyitott</span>`;
+    }
+
+    function logActionButton(log) {
+      if (log.reviewed) return `<span class="muted-cell">—</span>`;
+      if (!can("canViewLogs")) return `<span class="muted-cell">—</span>`;
+      return `<button class="small-btn" data-action="review-log" data-id="${escapeHtml(log.id)}">Ellenőrizve</button>`;
+    }
+
+    function renderLogRows(target, list) {
+      target.innerHTML = "";
+
+      if (!list.length) {
+        target.innerHTML = `<tr><td colspan="6">Nincs ilyen naplóbejegyzés.</td></tr>`;
+        return;
+      }
+
+      list.forEach(log => {
+        const tr = document.createElement("tr");
+        if (!log.reviewed && importantActions.has(log.action)) tr.classList.add("review-row");
+        tr.innerHTML = `
+          <td>${formatDateTime(log.createdAt)}</td>
+          <td><strong>${escapeHtml(actionLabel(log.action))}</strong><div class="muted-cell">${escapeHtml(log.action || "")}</div></td>
+          <td>${escapeHtml(log.userName || "-")}<div class="muted-cell">${escapeHtml(log.userRole || "")}</div></td>
+          <td class="admin-detail-cell">${renderDetails(log.details)}</td>
+          <td>${logStatusHtml(log)}</td>
+          <td class="action-cell">${logActionButton(log)}</td>
+        `;
+        target.appendChild(tr);
+      });
+    }
+
+    function renderReviewProducts() {
+      reviewProductsBody.innerHTML = "";
+
+      if (!reviewProducts.length) {
+        reviewProductsBody.innerHTML = `<tr><td colspan="7">Nincs ellenőrizendő termék.</td></tr>`;
+        return;
+      }
+
+      reviewProducts.forEach(product => {
+        const tr = document.createElement("tr");
+        tr.classList.add("review-row");
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(product.name || "")}</strong></td>
+          <td>${escapeHtml(product.category || "")}</td>
+          <td>${escapeHtml(product.unit || "")}</td>
+          <td>${formatMoney(product.salePrice)}</td>
+          <td>${can("canViewPurchasePrice") ? formatMoney(product.purchasePrice) : "-"}</td>
+          <td>${escapeHtml(product.updatedByName || product.createdByName || "-")}</td>
+          <td class="action-cell">
+            ${can("canReviewProducts") ? `<button class="small-btn" data-action="review-product" data-id="${escapeHtml(product.id)}">Ellenőrizve</button>` : `<span class="muted-cell">Nincs jogosultság</span>`}
+          </td>
+        `;
+        reviewProductsBody.appendChild(tr);
+      });
+    }
+
+    function renderModifiedShifts() {
+      modifiedShiftsBody.innerHTML = "";
+
+      if (!modifiedShifts.length) {
+        modifiedShiftsBody.innerHTML = `<tr><td colspan="7">Nincs utólag módosított lezárt stand.</td></tr>`;
+        return;
+      }
+
+      modifiedShifts.forEach(shift => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${shift.businessDate ? formatBusinessDate(shift.businessDate) : formatDateTime(shift.closedAt)}</td>
+          <td>${escapeHtml(shift.shiftLabel || shift.assignedUserName || "-")}</td>
+          <td>${escapeHtml(shift.lastModifiedAfterCloseByName || shift.updatedByName || "-")}</td>
+          <td>${formatDateTime(shift.lastModifiedAfterCloseAt || shift.updatedAt)}</td>
+          <td>${formatMoney(shift.totalSalesValue)}</td>
+          <td>${formatMoney(shift.totalCashExpected || shift.handoverAmount)}</td>
+          <td><a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}">Megnyitás</a></td>
+        `;
+        modifiedShiftsBody.appendChild(tr);
+      });
+    }
+
+    function renderImportantLogs() {
+      const list = logs.filter(log => importantActions.has(log.action) && !log.reviewed);
+      renderLogRows(importantLogsBody, list.slice(0, 80));
+    }
+
+    function renderActionFilterOptions() {
+      const current = actionFilter.value || "all";
+      const actions = [...new Set(logs.map(log => log.action).filter(Boolean))].sort((a, b) => actionLabel(a).localeCompare(actionLabel(b), "hu"));
+
+      actionFilter.innerHTML = `<option value="all">Minden típus</option>`;
+
+      actions.forEach(action => {
+        const option = document.createElement("option");
+        option.value = action;
+        option.textContent = actionLabel(action);
+        actionFilter.appendChild(option);
+      });
+
+      if (actions.includes(current)) actionFilter.value = current;
+      else actionFilter.value = "all";
+    }
+
+    function renderAllLogs() {
+      const action = actionFilter.value;
+      const review = reviewFilter.value;
+      let list = [...logs];
+
+      if (action !== "all") list = list.filter(log => log.action === action);
+      if (review === "open") list = list.filter(log => !log.reviewed);
+      if (review === "reviewed") list = list.filter(log => log.reviewed);
+
+      renderLogRows(allLogsBody, list.slice(0, 120));
+    }
+
+    function renderSummaries() {
+      const importantOpen = logs.filter(log => importantActions.has(log.action) && !log.reviewed).length;
+      summaryProducts.textContent = String(reviewProducts.length);
+      summaryImportantLogs.textContent = String(importantOpen);
+      summaryModifiedShifts.textContent = String(modifiedShifts.length);
+      summaryAllLogs.textContent = String(logs.length);
+      reviewInfo.textContent = `${reviewProducts.length + importantOpen + modifiedShifts.length} ellenőrzendő vagy figyelmet igénylő tétel`;
+    }
+
+    async function loadReviewProducts() {
+      const q = query(collection(db, "products"), where("adminReviewNeeded", "==", true), limit(100));
+      const snap = await getDocs(q);
+      reviewProducts = [];
+
+      snap.forEach(item => {
+        reviewProducts.push({ id: item.id, ...item.data() });
+      });
+
+      reviewProducts.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+    }
+
+    async function loadLogs() {
+      const q = query(collection(db, "logs"), orderBy("createdAt", "desc"), limit(180));
+      const snap = await getDocs(q);
+      logs = [];
+
+      snap.forEach(item => {
+        logs.push({ id: item.id, ...item.data() });
+      });
+    }
+
+    async function loadModifiedShifts() {
+      const q = query(collection(db, "shifts"), where("modifiedAfterClose", "==", true), limit(60));
+      const snap = await getDocs(q);
+      modifiedShifts = [];
+
+      snap.forEach(item => {
+        modifiedShifts.push({ id: item.id, ...item.data() });
+      });
+
+      modifiedShifts.sort((a, b) => {
+        const aTime = a.lastModifiedAfterCloseAt && a.lastModifiedAfterCloseAt.toMillis ? a.lastModifiedAfterCloseAt.toMillis() : 0;
+        const bTime = b.lastModifiedAfterCloseAt && b.lastModifiedAfterCloseAt.toMillis ? b.lastModifiedAfterCloseAt.toMillis() : 0;
+        return bTime - aTime;
+      });
+    }
+
+    async function markProductReviewed(productId) {
+      if (!can("canReviewProducts")) {
+        showMessage("Nincs jogosultságod termék ellenőrzéséhez.", true);
+        return;
+      }
+
+      const product = reviewProducts.find(item => item.id === productId);
+
+      await setDoc(doc(db, "products", productId), {
+        adminReviewNeeded: false,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      await addDoc(collection(db, "logs"), {
+        action: "product_reviewed",
+        details: {
+          productId,
+          productName: product ? product.name || "" : "",
+          source: "admin_review"
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp(),
+        reviewed: true,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name
+      });
+
+      showMessage("Termék ellenőrizve.");
+      await loadPageData();
+    }
+
+    async function markLogReviewed(logId) {
+      if (!can("canViewLogs")) {
+        showMessage("Nincs jogosultságod napló ellenőrzéséhez.", true);
+        return;
+      }
+
+      const log = logs.find(item => item.id === logId);
+
+      await setDoc(doc(db, "logs", logId), {
+        reviewed: true,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name
+      }, { merge: true });
+
+      await addDoc(collection(db, "logs"), {
+        action: "log_reviewed",
+        details: {
+          reviewedLogId: logId,
+          reviewedAction: log ? log.action || "" : "",
+          reviewedActionLabel: log ? actionLabel(log.action) : ""
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp(),
+        reviewed: true,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name
+      });
+
+      showMessage("Naplóbejegyzés ellenőrizve.");
+      await loadPageData();
+    }
+
+    async function loadPageData() {
+      if (!can("canViewLogs")) {
+        reviewInfo.textContent = "Nincs jogosultság az admin ellenőrzésekhez.";
+        reviewProductsBody.innerHTML = `<tr><td colspan="7">Nincs jogosultság.</td></tr>`;
+        importantLogsBody.innerHTML = `<tr><td colspan="6">Nincs jogosultság.</td></tr>`;
+        modifiedShiftsBody.innerHTML = `<tr><td colspan="7">Nincs jogosultság.</td></tr>`;
+        allLogsBody.innerHTML = `<tr><td colspan="6">Nincs jogosultság.</td></tr>`;
+        return;
+      }
+
+      reviewInfo.textContent = "Betöltés...";
+      showMessage("");
+
+      try {
+        await Promise.all([
+          loadReviewProducts(),
+          loadLogs(),
+          loadModifiedShifts()
+        ]);
+
+        renderReviewProducts();
+        renderImportantLogs();
+        renderModifiedShifts();
+        renderActionFilterOptions();
+        renderAllLogs();
+        renderSummaries();
+      } catch (error) {
+        console.error(error);
+        showMessage("Nem sikerült betölteni az admin ellenőrzéseket.", true);
+        reviewInfo.textContent = "Hiba történt betöltés közben.";
+      }
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+
+      currentUser = user;
+
+      const userSnap = await getDoc(doc(db, "users", user.uid));
+
+      if (!userSnap.exists()) {
+        userInfo.textContent = "Nincs felhasználói adat.";
+        return;
+      }
+
+      currentUserData = userSnap.data();
+
+      if (!currentUserData.active) {
+        userInfo.textContent = "Ez a felhasználó inaktív.";
+        return;
+      }
+
+      userInfo.textContent = `${currentUserData.name || currentUser.email} - ${roleLabel(currentUserData.role)}`;
+      await loadPageData();
+    });
+  </script>
+</body>
+</html>
