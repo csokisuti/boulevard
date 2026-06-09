@@ -144,13 +144,13 @@
       <summary>Pénzügyek</summary>
 
       <div class="finance-summary-grid">
-        <div class="finance-card">
-          <span>Pultforgalom</span>
-          <strong id="financeProductSales">0 Ft</strong>
-        </div>
         <div class="finance-card positive">
           <span>Előző stand leadó</span>
           <strong id="financePreviousHandover">0 Ft</strong>
+        </div>
+        <div class="finance-card">
+          <span>Pultforgalom</span>
+          <strong id="financeProductSales">0 Ft</strong>
         </div>
         <div class="finance-card negative">
           <span>Bankkártya</span>
@@ -181,16 +181,8 @@
           <strong id="financeDebtPaid">0 Ft</strong>
         </div>
         <div class="finance-card total">
-          <span>Várható készpénz</span>
-          <strong id="financeExpectedCash">0 Ft</strong>
-        </div>
-        <div class="finance-card">
           <span>Leadó</span>
-          <strong id="financeHandoverAmount">0 Ft</strong>
-        </div>
-        <div class="finance-card">
-          <span>Eltérés</span>
-          <strong id="financeHandoverDifference">0 Ft</strong>
+          <strong id="financeCalculatedHandover">0 Ft</strong>
         </div>
       </div>
 
@@ -238,7 +230,7 @@
 
         <div class="finance-block">
           <h3>Bankkártya</h3>
-          <p class="muted-cell">A bankkártyás összeg levonódik a várható készpénzből. Több nap külön rögzíthető.</p>
+          <p class="muted-cell">A bankkártyás összeg levonódik a leadóból. Több nap külön rögzíthető.</p>
 
           <div class="form-grid">
             <div>
@@ -273,7 +265,7 @@
 
         <div class="finance-block">
           <h3>Lottó forgalom</h3>
-          <p class="muted-cell">A lottó forgalom hozzáadódik a várható készpénzhez. Több nap külön rögzíthető.</p>
+          <p class="muted-cell">A lottó forgalom hozzáadódik a leadóhoz. Több nap külön rögzíthető.</p>
 
           <div class="form-grid">
             <div>
@@ -314,7 +306,7 @@
 
         <div class="finance-block">
           <h3>Repi</h3>
-          <p class="muted-cell">A repi levonódik a várható készpénzből. Itt jelölhető, ki fogyasztott és mennyiért.</p>
+          <p class="muted-cell">A repi levonódik a leadóból. Itt jelölhető, ki fogyasztott és mennyiért.</p>
 
           <div class="form-grid">
             <div>
@@ -354,22 +346,12 @@
         </div>
 
         <div class="finance-block">
-          <h3>Leadó / átadott készpénz</h3>
-          <p class="muted-cell">Ezt a rendszer a következő standba automatikusan átviszi „Előző stand leadó” néven.</p>
+          <h3>Számolt leadó</h3>
+          <p class="muted-cell">Ez az összeg automatikusan megy át a következő standba „Előző stand leadó” néven.</p>
 
-          <div class="form-grid">
-            <div>
-              <label for="handoverAmountInput">Leadó összeg</label>
-              <input id="handoverAmountInput" type="number" min="0">
-            </div>
-
-            <div>
-              <label>Eltérés</label>
-              <div class="summary-box">
-                <strong>Várható készpénz - leadó</strong>
-                <span id="handoverDifferenceBox">0 Ft</span>
-              </div>
-            </div>
+          <div class="summary-box">
+            <strong>Leadó</strong>
+            <span id="calculatedHandoverBox">0 Ft</span>
           </div>
 
           <div class="button-row">
@@ -463,9 +445,8 @@
     const financeExpense = document.getElementById("financeExpense");
     const financeDebtCreated = document.getElementById("financeDebtCreated");
     const financeDebtPaid = document.getElementById("financeDebtPaid");
-    const financeExpectedCash = document.getElementById("financeExpectedCash");
-    const financeHandoverAmount = document.getElementById("financeHandoverAmount");
-    const financeHandoverDifference = document.getElementById("financeHandoverDifference");
+    const financeCalculatedHandover = document.getElementById("financeCalculatedHandover");
+    const calculatedHandoverBox = document.getElementById("calculatedHandoverBox");
     const cardDate = document.getElementById("cardDate");
     const cardAmount = document.getElementById("cardAmount");
     const addCardPaymentBtn = document.getElementById("addCardPaymentBtn");
@@ -489,8 +470,6 @@
     const addMoneyMovementBtn = document.getElementById("addMoneyMovementBtn");
     const moneyMovementsBody = document.getElementById("moneyMovementsBody");
     const openDebtsBody = document.getElementById("openDebtsBody");
-    const handoverAmountInput = document.getElementById("handoverAmountInput");
-    const handoverDifferenceBox = document.getElementById("handoverDifferenceBox");
     const saveHandoverBtn = document.getElementById("saveHandoverBtn");
 
     const params = new URLSearchParams(window.location.search);
@@ -592,10 +571,7 @@
     }
 
     function isFieldUnlocked(row, field) {
-      if (!row.unlockedFields) {
-        row.unlockedFields = {};
-      }
-
+      if (!row.unlockedFields) row.unlockedFields = {};
       return !!row.unlockedFields[field];
     }
 
@@ -604,6 +580,7 @@
     }
 
     function movementEffect(type, amount) {
+      if (type === "product_sales") return amount;
       if (type === "income") return amount;
       if (type === "expense") return -amount;
       if (type === "debt_create") return -amount;
@@ -616,6 +593,7 @@
     }
 
     function movementTypeLabel(type) {
+      if (type === "product_sales") return "Pultforgalom";
       if (type === "income") return "Egyéb bevétel";
       if (type === "expense") return "Egyéb kiadás";
       if (type === "debt_create") return "Új tartozás";
@@ -712,7 +690,6 @@
       }
 
       localStorage.removeItem("boulevardProductsCacheV1");
-
       return String(version);
     }
 
@@ -722,13 +699,7 @@
 
       snap.forEach(item => {
         const data = item.data();
-
-        if (data.active !== false) {
-          users.push({
-            id: item.id,
-            ...data
-          });
-        }
+        if (data.active !== false) users.push({ id: item.id, ...data });
       });
 
       users.sort((a, b) => String(a.name || a.email || "").localeCompare(String(b.name || b.email || ""), "hu"));
@@ -741,10 +712,7 @@
 
       categories = [];
       snap.forEach(item => {
-        categories.push({
-          id: item.id,
-          ...item.data()
-        });
+        categories.push({ id: item.id, ...item.data() });
       });
 
       categories.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
@@ -795,12 +763,7 @@
 
       snap.forEach(item => {
         const data = item.data();
-        if (data.active !== false) {
-          loadedProducts.push({
-            id: item.id,
-            ...data
-          });
-        }
+        if (data.active !== false) loadedProducts.push({ id: item.id, ...data });
       });
 
       loadedProducts.sort((a, b) => {
@@ -824,9 +787,7 @@
       if (cacheRaw) {
         try {
           const cache = JSON.parse(cacheRaw);
-          if (cache.version === version && Array.isArray(cache.products)) {
-            return cache.products;
-          }
+          if (cache.version === version && Array.isArray(cache.products)) return cache.products;
         } catch (error) {
           localStorage.removeItem("boulevardProductsCacheV1");
         }
@@ -838,43 +799,27 @@
     async function getOpenShift() {
       const q = query(collection(db, "shifts"), where("status", "==", "open"), limit(1));
       const snap = await getDocs(q);
-
       if (snap.empty) return null;
-
       const item = snap.docs[0];
-
-      return {
-        id: item.id,
-        ...item.data()
-      };
+      return { id: item.id, ...item.data() };
     }
 
     async function getShiftById(shiftId) {
       const snap = await getDoc(doc(db, "shifts", shiftId));
-
       if (!snap.exists()) return null;
-
-      return {
-        id: snap.id,
-        ...snap.data()
-      };
+      return { id: snap.id, ...snap.data() };
     }
 
     async function getLastClosedShift() {
       const q = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(1));
       const snap = await getDocs(q);
-
       if (snap.empty) return null;
 
       const item = snap.docs[0];
       const data = item.data();
-
       if (data.status !== "closed") return null;
 
-      return {
-        id: item.id,
-        ...data
-      };
+      return { id: item.id, ...data };
     }
 
     async function loadShiftItems(shiftId) {
@@ -882,10 +827,7 @@
       const map = new Map();
 
       snap.forEach(item => {
-        map.set(item.id, {
-          id: item.id,
-          ...item.data()
-        });
+        map.set(item.id, { id: item.id, ...item.data() });
       });
 
       return map;
@@ -893,16 +835,12 @@
 
     async function loadMoneyMovements(shiftId) {
       moneyMovements = [];
-
       if (!shiftId) return;
 
       const snap = await getDocs(collection(db, "shifts", shiftId, "moneyMovements"));
 
       snap.forEach(item => {
-        moneyMovements.push({
-          id: item.id,
-          ...item.data()
-        });
+        moneyMovements.push({ id: item.id, ...item.data() });
       });
 
       moneyMovements.sort((a, b) => {
@@ -919,13 +857,7 @@
 
       snap.forEach(item => {
         const data = item.data();
-
-        if (data.status !== "paid") {
-          openDebts.push({
-            id: item.id,
-            ...data
-          });
-        }
+        if (data.status !== "paid") openDebts.push({ id: item.id, ...data });
       });
 
       openDebts.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
@@ -997,6 +929,13 @@
       };
     }
 
+    function previousHandoverFromShift(shift) {
+      if (!shift) return 0;
+      if (hasValue(shift.handoverAmount)) return toNumber(shift.handoverAmount);
+      if (hasValue(shift.totalCashExpected)) return toNumber(shift.totalCashExpected);
+      return 0;
+    }
+
     async function openNewShift() {
       const selectedDate = shiftDate.value;
       const assignedUserId = assignedUserSelect.value;
@@ -1028,12 +967,12 @@
 
       const previousShift = await getLastClosedShift();
       const previousItems = previousShift ? await loadShiftItems(previousShift.id) : new Map();
-      const previousHandover = previousShift ? toNumber(previousShift.handoverAmount) : 0;
+      const previousHandover = previousHandoverFromShift(previousShift);
       const shiftRef = doc(collection(db, "shifts"));
       const batch = writeBatch(db);
       const shiftLabel = `${formatBusinessDate(selectedDate)} - ${assignedUser.name || assignedUser.email || "Stand"}`;
 
-      const shiftData = {
+      batch.set(shiftRef, {
         status: "open",
         shiftLabel,
         businessDate: selectedDate,
@@ -1055,37 +994,29 @@
         totalRepi: 0,
         totalPreviousHandover: previousHandover,
         totalCashExpected: previousHandover,
-        handoverAmount: 0,
-        handoverDifference: previousHandover,
+        handoverAmount: previousHandover,
+        previousShiftId: previousShift ? previousShift.id : "",
+        previousShiftLabel: previousShift ? previousShift.shiftLabel || "" : "",
         createdAt: serverTimestamp()
-      };
-
-      if (previousShift) {
-        shiftData.previousShiftId = previousShift.id;
-        shiftData.previousShiftLabel = previousShift.shiftLabel || "";
-      }
-
-      batch.set(shiftRef, shiftData);
+      });
 
       products.forEach(product => {
         const previousItem = previousItems.get(product.id);
         const opening = previousItem ? toNumber(previousItem.remaining) : 0;
         const itemRef = doc(db, "shifts", shiftRef.id, "items", product.id);
-
         batch.set(itemRef, productShiftItemData(product, opening));
       });
 
-      if (previousHandover > 0 && previousShift) {
+      if (previousHandover !== 0) {
         const movementRef = doc(collection(db, "shifts", shiftRef.id, "moneyMovements"));
-
         batch.set(movementRef, {
           type: "previous_handover",
           amount: previousHandover,
           personName: "Előző stand leadó",
-          note: previousShift.shiftLabel || "",
+          note: previousShift ? previousShift.shiftLabel || "" : "",
           movementDate: selectedDate,
-          previousShiftId: previousShift.id,
-          previousShiftLabel: previousShift.shiftLabel || "",
+          previousShiftId: previousShift ? previousShift.id : "",
+          previousShiftLabel: previousShift ? previousShift.shiftLabel || "" : "",
           shiftId: shiftRef.id,
           shiftLabel,
           createdAt: serverTimestamp(),
@@ -1104,12 +1035,7 @@
           assignedUserId: assignedUser.id,
           assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
           previousShiftId: previousShift ? previousShift.id : "",
-          previousHandover,
-          openDebtsCarried: openDebts.map(debt => ({
-            debtId: debt.id,
-            name: debt.name || "",
-            remainingAmount: toNumber(debt.remainingAmount)
-          }))
+          previousHandover
         },
         userId: currentUser.uid,
         userName: currentUserData.name,
@@ -1118,7 +1044,6 @@
       });
 
       await batch.commit();
-
       window.location.href = "stand.html";
     }
 
@@ -1145,11 +1070,7 @@
     function sortRowsForStand() {
       rows.sort((a, b) => {
         const categoryCompare = categoryName(a).localeCompare(categoryName(b), "hu", { sensitivity: "base" });
-
-        if (categoryCompare !== 0) {
-          return categoryCompare;
-        }
-
+        if (categoryCompare !== 0) return categoryCompare;
         return String(a.productNameAtShift || "").localeCompare(String(b.productNameAtShift || ""), "hu", { sensitivity: "base" });
       });
     }
@@ -1184,23 +1105,15 @@
       });
 
       Array.from(itemMap.values()).forEach(item => {
-        if (!products.some(product => product.id === item.productId)) {
-          rows.push(rowFromItem(item));
-        }
+        if (!products.some(product => product.id === item.productId)) rows.push(rowFromItem(item));
       });
 
       sortRowsForStand();
     }
 
     function comparableValue(field, value) {
-      if (field === "openingChangeNote" || field === "receivedNote") {
-        return String(value || "").trim();
-      }
-
-      if (field === "remaining") {
-        return hasValue(value) ? toNumber(value) : "";
-      }
-
+      if (field === "openingChangeNote" || field === "receivedNote") return String(value || "").trim();
+      if (field === "remaining") return hasValue(value) ? toNumber(value) : "";
       return toNumber(value);
     }
 
@@ -1233,9 +1146,7 @@
         { key: "salePriceAtShift", label: "Egységár" }
       ];
 
-      originalRows.forEach(row => {
-        beforeMap.set(row.productId, row);
-      });
+      originalRows.forEach(row => beforeMap.set(row.productId, row));
 
       rows.forEach(row => {
         const before = beforeMap.get(row.productId);
@@ -1284,8 +1195,13 @@
       const cardPayment = moneyMovements.filter(item => item.type === "card_payment").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const lottoTurnover = moneyMovements.filter(item => item.type === "lotto_turnover").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const repi = moneyMovements.filter(item => item.type === "repi").reduce((sum, item) => sum + toNumber(item.amount), 0);
-      const previousHandover = moneyMovements.filter(item => item.type === "previous_handover").reduce((sum, item) => sum + toNumber(item.amount), 0);
-      const expectedCash = productSales + previousHandover + income - expense - debtCreated + debtPaid - cardPayment + lottoTurnover - repi;
+      let previousHandover = moneyMovements.filter(item => item.type === "previous_handover").reduce((sum, item) => sum + toNumber(item.amount), 0);
+
+      if (previousHandover === 0 && currentShift && hasValue(currentShift.totalPreviousHandover)) {
+        previousHandover = toNumber(currentShift.totalPreviousHandover);
+      }
+
+      const calculatedHandover = previousHandover + productSales + income - expense - debtCreated + debtPaid - cardPayment + lottoTurnover - repi;
 
       return {
         productSales,
@@ -1297,27 +1213,8 @@
         lottoTurnover,
         repi,
         previousHandover,
-        expectedCash
+        calculatedHandover
       };
-    }
-
-    function currentHandoverData() {
-      const totals = financeTotals();
-      const handoverAmount = toNumber(handoverAmountInput.value);
-      const handoverDifference = totals.expectedCash - handoverAmount;
-
-      return {
-        handoverAmount,
-        handoverDifference
-      };
-    }
-
-    function updateHandoverDisplay() {
-      const data = currentHandoverData();
-
-      financeHandoverAmount.textContent = formatMoney(data.handoverAmount);
-      financeHandoverDifference.textContent = formatMoney(data.handoverDifference);
-      handoverDifferenceBox.textContent = formatMoney(data.handoverDifference);
     }
 
     function renderCardPaymentsTable() {
@@ -1397,6 +1294,82 @@
       });
     }
 
+    function moneyMovementSortValue(item) {
+      if (item.type === "previous_handover") return 1;
+      if (item.type === "product_sales") return 2;
+      if (item.type === "card_payment") return 3;
+      if (item.type === "lotto_turnover") return 4;
+      if (item.type === "repi") return 5;
+      if (item.type === "income") return 6;
+      if (item.type === "expense") return 7;
+      if (item.type === "debt_create") return 8;
+      if (item.type === "debt_payment") return 9;
+      return 99;
+    }
+
+    function renderAllMoneyMovements() {
+      const totals = financeTotals();
+      const display = [];
+
+      const hasPreviousHandoverMovement = moneyMovements.some(item => item.type === "previous_handover");
+
+      if (!hasPreviousHandoverMovement && totals.previousHandover !== 0) {
+        display.push({
+          type: "previous_handover",
+          movementDate: currentShift?.businessDate || "",
+          personName: "Előző stand leadó",
+          amount: totals.previousHandover,
+          note: currentShift?.previousShiftLabel || "",
+          createdByName: "Rendszer"
+        });
+      }
+
+      display.push({
+        type: "product_sales",
+        movementDate: currentShift?.businessDate || "",
+        personName: "Pultforgalom",
+        amount: totals.productSales,
+        note: "Termékfogyásból számolva",
+        createdByName: "Rendszer"
+      });
+
+      moneyMovements.forEach(item => display.push(item));
+
+      display.sort((a, b) => {
+        const priority = moneyMovementSortValue(a) - moneyMovementSortValue(b);
+        if (priority !== 0) return priority;
+
+        const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+        const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+        return aTime - bTime;
+      });
+
+      moneyMovementsBody.innerHTML = "";
+
+      if (!display.length) {
+        moneyMovementsBody.innerHTML = `<tr><td colspan="7">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
+        return;
+      }
+
+      display.forEach(item => {
+        const amount = toNumber(item.amount);
+        const effect = movementEffect(item.type, amount);
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+          <td>${movementTypeLabel(item.type)}</td>
+          <td>${item.movementDate ? formatBusinessDate(item.movementDate) : "-"}</td>
+          <td>${escapeHtml(item.personName || "")}</td>
+          <td>${formatMoney(amount)}</td>
+          <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
+          <td>${escapeHtml(item.note || "")}</td>
+          <td>${escapeHtml(item.createdByName || "")}</td>
+        `;
+
+        moneyMovementsBody.appendChild(tr);
+      });
+    }
+
     function renderFinance() {
       const totals = financeTotals();
 
@@ -1409,37 +1382,14 @@
       financeExpense.textContent = `-${formatMoney(totals.expense)}`;
       financeDebtCreated.textContent = `-${formatMoney(totals.debtCreated)}`;
       financeDebtPaid.textContent = formatMoney(totals.debtPaid);
-      financeExpectedCash.textContent = formatMoney(totals.expectedCash);
+      financeCalculatedHandover.textContent = formatMoney(totals.calculatedHandover);
+      calculatedHandoverBox.textContent = formatMoney(totals.calculatedHandover);
 
       renderCardPaymentsTable();
       renderLottoTurnoverTable();
       renderRepiTable();
+      renderAllMoneyMovements();
 
-      moneyMovementsBody.innerHTML = "";
-
-      if (!moneyMovements.length) {
-        moneyMovementsBody.innerHTML = `<tr><td colspan="7">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
-      } else {
-        moneyMovements.forEach(item => {
-          const amount = toNumber(item.amount);
-          const effect = movementEffect(item.type, amount);
-          const tr = document.createElement("tr");
-
-          tr.innerHTML = `
-            <td>${movementTypeLabel(item.type)}</td>
-            <td>${item.movementDate ? formatBusinessDate(item.movementDate) : "-"}</td>
-            <td>${escapeHtml(item.personName || "")}</td>
-            <td>${formatMoney(amount)}</td>
-            <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
-            <td>${escapeHtml(item.note || "")}</td>
-            <td>${escapeHtml(item.createdByName || "")}</td>
-          `;
-
-          moneyMovementsBody.appendChild(tr);
-        });
-      }
-
-      updateHandoverDisplay();
       financeFormBox.style.display = isOpenShift() ? "" : "none";
     }
 
@@ -1450,13 +1400,8 @@
         const totalEl = categoryRow.querySelector(".category-total");
         const statusEl = categoryRow.querySelector(".category-status");
 
-        if (totalEl) {
-          totalEl.textContent = `Összesen: ${formatMoney(stats.total)}`;
-        }
-
-        if (statusEl) {
-          statusEl.textContent = `${stats.filled}/${stats.all} kitöltve`;
-        }
+        if (totalEl) totalEl.textContent = `Összesen: ${formatMoney(stats.total)}`;
+        if (statusEl) statusEl.textContent = `${stats.filled}/${stats.all} kitöltve`;
 
         if (stats.allFilled) {
           categoryRow.classList.add("category-complete");
@@ -1472,9 +1417,7 @@
       const categoryTr = document.createElement("tr");
 
       categoryTr.className = "category-row";
-      if (stats.allFilled) {
-        categoryTr.classList.add("category-complete");
-      }
+      if (stats.allFilled) categoryTr.classList.add("category-complete");
 
       categoryTr.dataset.category = category;
       categoryTr.innerHTML = `
@@ -1532,13 +1475,8 @@
         const tr = document.createElement("tr");
         tr.dataset.index = index;
 
-        if (openingChanged(row)) {
-          tr.classList.add("review-row");
-        }
-
-        if (receivedNeedsNote(row)) {
-          tr.classList.add("negative-received-row");
-        }
+        if (openingChanged(row)) tr.classList.add("review-row");
+        if (receivedNeedsNote(row)) tr.classList.add("negative-received-row");
 
         const receivedCell = counter
           ? `<input class="table-input disabled-input" value="" disabled>`
@@ -1581,21 +1519,13 @@
       tr.querySelector(".calc-current").textContent = formatNumber(c.currentStock);
       tr.querySelector(".calc-sales").textContent = formatMoney(c.salesValue);
 
-      if (receivedNoteCell) {
-        receivedNoteCell.innerHTML = renderReceivedNoteCell(row);
-      }
+      if (receivedNoteCell) receivedNoteCell.innerHTML = renderReceivedNoteCell(row);
 
-      if (openingChanged(row)) {
-        tr.classList.add("review-row");
-      } else {
-        tr.classList.remove("review-row");
-      }
+      if (openingChanged(row)) tr.classList.add("review-row");
+      else tr.classList.remove("review-row");
 
-      if (receivedNeedsNote(row)) {
-        tr.classList.add("negative-received-row");
-      } else {
-        tr.classList.remove("negative-received-row");
-      }
+      if (receivedNeedsNote(row)) tr.classList.add("negative-received-row");
+      else tr.classList.remove("negative-received-row");
 
       updateTotalSales();
       updateCategorySummaries();
@@ -1667,28 +1597,11 @@
     }
 
     function financialDetailsForLog() {
-      const totals = financeTotals();
-      const handover = currentHandoverData();
-
-      return {
-        productSales: totals.productSales,
-        previousHandover: totals.previousHandover,
-        cardPayment: totals.cardPayment,
-        lottoTurnover: totals.lottoTurnover,
-        repi: totals.repi,
-        income: totals.income,
-        expense: totals.expense,
-        debtCreated: totals.debtCreated,
-        debtPaid: totals.debtPaid,
-        expectedCash: totals.expectedCash,
-        handoverAmount: handover.handoverAmount,
-        handoverDifference: handover.handoverDifference
-      };
+      return financeTotals();
     }
 
     async function updateShiftFinancialTotals(batch) {
       const totals = financeTotals();
-      const handover = currentHandoverData();
 
       batch.set(doc(db, "shifts", currentShift.id), {
         totalSalesValue: totals.productSales,
@@ -1700,120 +1613,12 @@
         totalLottoTurnover: totals.lottoTurnover,
         totalRepi: totals.repi,
         totalPreviousHandover: totals.previousHandover,
-        totalCashExpected: totals.expectedCash,
-        handoverAmount: handover.handoverAmount,
-        handoverDifference: handover.handoverDifference,
+        totalCashExpected: totals.calculatedHandover,
+        handoverAmount: totals.calculatedHandover,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
       }, { merge: true });
-    }
-
-    async function propagateRemainingChanges(changes) {
-      const remainingChanges = changes.filter(change => change.field === "remaining");
-
-      if (!remainingChanges.length) return;
-
-      const q = query(collection(db, "shifts"), where("previousShiftId", "==", currentShift.id), limit(1));
-      const snap = await getDocs(q);
-
-      if (snap.empty) {
-        await writeLog("next_shift_not_found_for_propagation", {
-          previousShiftId: currentShift.id,
-          changes: remainingChanges
-        });
-        return;
-      }
-
-      const nextDoc = snap.docs[0];
-      const nextShift = {
-        id: nextDoc.id,
-        ...nextDoc.data()
-      };
-
-      const itemMap = await loadShiftItems(nextShift.id);
-      const nextRows = Array.from(itemMap.values()).map(item => rowFromItem(item));
-      const propagationDetails = [];
-
-      remainingChanges.forEach(change => {
-        const nextRow = nextRows.find(row => row.productId === change.productId);
-
-        if (!nextRow) return;
-
-        const beforeOpeningAuto = toNumber(nextRow.openingAuto);
-        const beforeOpeningFinal = toNumber(nextRow.openingFinal);
-        const newOpening = toNumber(change.after);
-
-        nextRow.openingAuto = newOpening;
-        nextRow.openingFinal = newOpening;
-        nextRow.openingChangeNote = "";
-
-        propagationDetails.push({
-          productId: change.productId,
-          productName: change.productName,
-          nextShiftId: nextShift.id,
-          beforeOpeningAuto,
-          beforeOpeningFinal,
-          afterOpening: newOpening
-        });
-      });
-
-      if (!propagationDetails.length) return;
-
-      const totalSalesValue = nextRows.reduce((sum, row) => sum + calc(row).salesValue, 0);
-      const totalPurchaseValue = nextRows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
-      const totalMarginValue = totalSalesValue - totalPurchaseValue;
-      const batch = writeBatch(db);
-
-      propagationDetails.forEach(detail => {
-        const row = nextRows.find(item => item.productId === detail.productId);
-        const itemRef = doc(db, "shifts", nextShift.id, "items", detail.productId);
-
-        batch.set(itemRef, itemDataFromRow(row), { merge: true });
-      });
-
-      const nextShiftUpdate = {
-        totalSalesValue,
-        totalPurchaseValue,
-        totalMarginValue,
-        updatedAt: serverTimestamp(),
-        updatedBy: currentUser.uid,
-        updatedByName: currentUserData.name,
-        openingUpdatedFromPreviousShift: true,
-        openingUpdatedFromPreviousShiftAt: serverTimestamp(),
-        openingUpdatedFromPreviousShiftBy: currentUser.uid,
-        openingUpdatedFromPreviousShiftByName: currentUserData.name
-      };
-
-      if (nextShift.status === "closed") {
-        nextShiftUpdate.modifiedAfterClose = true;
-        nextShiftUpdate.lastModifiedAfterCloseAt = serverTimestamp();
-        nextShiftUpdate.lastModifiedAfterCloseBy = currentUser.uid;
-        nextShiftUpdate.lastModifiedAfterCloseByName = currentUserData.name;
-      }
-
-      batch.set(doc(db, "shifts", nextShift.id), nextShiftUpdate, { merge: true });
-
-      const logRef = doc(collection(db, "logs"));
-      batch.set(logRef, {
-        action: "next_shift_opening_updated_from_previous_edit",
-        details: {
-          previousShiftId: currentShift.id,
-          previousShiftLabel: currentShift.shiftLabel || "",
-          nextShiftId: nextShift.id,
-          nextShiftLabel: nextShift.shiftLabel || "",
-          propagationDetails,
-          totalSalesValue,
-          totalPurchaseValue,
-          totalMarginValue
-        },
-        userId: currentUser.uid,
-        userName: currentUserData.name,
-        userRole: currentUserData.role,
-        createdAt: serverTimestamp()
-      });
-
-      await batch.commit();
     }
 
     async function saveDraft() {
@@ -1840,7 +1645,6 @@
 
       rows.forEach(row => {
         if (closed && !changedProductIds.has(row.productId)) return;
-
         const itemRef = doc(db, "shifts", currentShift.id, "items", row.productId);
         batch.set(itemRef, itemDataFromRow(row), { merge: true });
       });
@@ -1862,6 +1666,7 @@
       }
 
       batch.set(doc(db, "shifts", currentShift.id), shiftUpdate, { merge: true });
+      await updateShiftFinancialTotals(batch);
 
       if (closed) {
         const logRef = doc(collection(db, "logs"));
@@ -1872,10 +1677,7 @@
             shiftLabel: currentShift.shiftLabel || "",
             changes,
             negativeReceivedNotes: negativeReceivedNotes(),
-            financials: financialDetailsForLog(),
-            totalSalesValue,
-            totalPurchaseValue,
-            totalMarginValue
+            financials: financialDetailsForLog()
           },
           userId: currentUser.uid,
           userName: currentUserData.name,
@@ -1884,28 +1686,16 @@
         });
       }
 
-      await updateShiftFinancialTotals(batch);
       await batch.commit();
 
-      if (!closed) {
-        await writeLog("shift_draft_saved", {
-          shiftId: currentShift.id,
-          negativeReceivedNotes: negativeReceivedNotes(),
-          financials: financialDetailsForLog()
-        });
+      currentShift = {
+        ...currentShift,
+        ...shiftUpdate,
+        handoverAmount: financeTotals().calculatedHandover
+      };
 
-        showMessage("Mentve.");
-      } else {
-        await propagateRemainingChanges(changes);
-
-        currentShift = {
-          ...currentShift,
-          ...shiftUpdate
-        };
-
-        setOriginalRows();
-        showMessage("Lezárt stand módosítása mentve és naplózva.");
-      }
+      setOriginalRows();
+      showMessage(closed ? "Lezárt stand módosítása mentve és naplózva." : "Mentve.");
     }
 
     async function closeShift() {
@@ -1921,7 +1711,7 @@
         return;
       }
 
-      const confirmClose = confirm("Biztosan lezárod a standot? Új stand nem nyílik automatikusan, azt külön kell megnyitni.");
+      const confirmClose = confirm("Biztosan lezárod a standot? A leadó automatikusan átmegy a következő standba.");
 
       if (!confirmClose) return;
 
@@ -1929,7 +1719,6 @@
       const totalPurchaseValue = rows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
       const totalMarginValue = totalSalesValue - totalPurchaseValue;
       const financials = financeTotals();
-      const handover = currentHandoverData();
       const batch = writeBatch(db);
 
       rows.forEach(row => {
@@ -1953,9 +1742,8 @@
         totalLottoTurnover: financials.lottoTurnover,
         totalRepi: financials.repi,
         totalPreviousHandover: financials.previousHandover,
-        totalCashExpected: financials.expectedCash,
-        handoverAmount: handover.handoverAmount,
-        handoverDifference: handover.handoverDifference,
+        totalCashExpected: financials.calculatedHandover,
+        handoverAmount: financials.calculatedHandover,
         handoverSavedAt: serverTimestamp(),
         handoverSavedBy: currentUser.uid,
         handoverSavedByName: currentUserData.name,
@@ -1994,7 +1782,6 @@
           assignedUserName: currentShift.assignedUserName || "",
           negativeReceivedNotes: negativeReceivedNotes(),
           financials,
-          handover,
           totalSalesValue,
           totalPurchaseValue,
           totalMarginValue
@@ -2006,7 +1793,6 @@
       });
 
       await batch.commit();
-
       window.location.href = `stand.html?shiftId=${encodeURIComponent(currentShift.id)}`;
     }
 
@@ -2015,28 +1801,14 @@
       await loadOpenDebts();
       renderFinance();
 
-      const totals = financeTotals();
-      const handover = currentHandoverData();
       const updateBatch = writeBatch(db);
-
-      updateBatch.set(doc(db, "shifts", currentShift.id), {
-        totalMoneyIncome: totals.income,
-        totalMoneyExpense: totals.expense,
-        totalDebtCreated: totals.debtCreated,
-        totalDebtPaid: totals.debtPaid,
-        totalCardPayment: totals.cardPayment,
-        totalLottoTurnover: totals.lottoTurnover,
-        totalRepi: totals.repi,
-        totalPreviousHandover: totals.previousHandover,
-        totalCashExpected: totals.expectedCash,
-        handoverAmount: handover.handoverAmount,
-        handoverDifference: handover.handoverDifference,
-        updatedAt: serverTimestamp(),
-        updatedBy: currentUser.uid,
-        updatedByName: currentUserData.name
-      }, { merge: true });
-
+      await updateShiftFinancialTotals(updateBatch);
       await updateBatch.commit();
+
+      currentShift = {
+        ...currentShift,
+        handoverAmount: financeTotals().calculatedHandover
+      };
 
       showMessage(text);
     }
@@ -2101,7 +1873,6 @@
       }
 
       const saved = await createSimpleMoneyMovement("card_payment", amount, "Bankkártya", "", date);
-
       if (!saved) return;
 
       cardAmount.value = "";
@@ -2121,7 +1892,6 @@
       }
 
       const saved = await createSimpleMoneyMovement("lotto_turnover", amount, "Lottó", note, date);
-
       if (!saved) return;
 
       lottoAmount.value = "";
@@ -2142,7 +1912,6 @@
       }
 
       const saved = await createSimpleMoneyMovement("repi", amount, person, note, "");
-
       if (!saved) return;
 
       repiPerson.value = "";
@@ -2219,11 +1988,7 @@
           return;
         }
 
-        const debt = {
-          id: debtSnap.id,
-          ...debtSnap.data()
-        };
-
+        const debt = { id: debtSnap.id, ...debtSnap.data() };
         const remainingBefore = toNumber(debt.remainingAmount);
 
         if (amount > remainingBefore) {
@@ -2311,16 +2076,12 @@
         return;
       }
 
-      const handover = currentHandoverData();
-
-      if (handover.handoverAmount < 0) {
-        showMessage("A leadó nem lehet negatív.", true);
-        return;
-      }
+      const totals = financeTotals();
 
       await setDoc(doc(db, "shifts", currentShift.id), {
-        handoverAmount: handover.handoverAmount,
-        handoverDifference: handover.handoverDifference,
+        handoverAmount: totals.calculatedHandover,
+        totalCashExpected: totals.calculatedHandover,
+        totalPreviousHandover: totals.previousHandover,
         handoverSavedAt: serverTimestamp(),
         handoverSavedBy: currentUser.uid,
         handoverSavedByName: currentUserData.name,
@@ -2332,18 +2093,17 @@
       await writeLog("handover_saved", {
         shiftId: currentShift.id,
         shiftLabel: currentShift.shiftLabel || "",
-        handoverAmount: handover.handoverAmount,
-        handoverDifference: handover.handoverDifference,
-        financials: financialDetailsForLog()
+        handoverAmount: totals.calculatedHandover,
+        financials: totals
       });
 
       currentShift = {
         ...currentShift,
-        handoverAmount: handover.handoverAmount,
-        handoverDifference: handover.handoverDifference
+        handoverAmount: totals.calculatedHandover,
+        totalCashExpected: totals.calculatedHandover
       };
 
-      updateHandoverDisplay();
+      renderFinance();
       showMessage("Leadó mentve.");
     }
 
@@ -2442,13 +2202,11 @@
       quickProductDetails.open = false;
 
       showMessage("Új termék felvéve és hozzáadva az aktuális standhoz.");
-
       await loadPage();
     }
 
     async function checkProductSyncNeeded() {
       productSyncPanel.style.display = "none";
-
       if (!isOpenShift()) return;
 
       const version = await loadCatalogVersion();
@@ -2478,10 +2236,7 @@
 
         if (!item) {
           batch.set(itemRef, productShiftItemData(product, 0));
-          added.push({
-            productId: product.id,
-            productName: product.name || ""
-          });
+          added.push({ productId: product.id, productName: product.name || "" });
           return;
         }
 
@@ -2554,9 +2309,7 @@
 
       rows[index][field] = input.value;
 
-      if (field === "receivedNote") {
-        return;
-      }
+      if (field === "receivedNote") return;
 
       updateRowDisplay(tr, rows[index]);
     });
@@ -2572,7 +2325,6 @@
       }
 
       const editButton = event.target.closest("[data-action='unlock-field']");
-
       if (!editButton) return;
 
       const index = Number(editButton.dataset.index);
@@ -2580,10 +2332,7 @@
       const row = rows[index];
 
       if (!row) return;
-
-      if (!row.unlockedFields) {
-        row.unlockedFields = {};
-      }
+      if (!row.unlockedFields) row.unlockedFields = {};
 
       if (field === "openingFinal") {
         const note = prompt(`Miért módosítod a nyitót? Automata nyitó: ${formatNumber(row.openingAuto)}`, row.openingChangeNote || "");
@@ -2633,8 +2382,6 @@
       }
     });
 
-    handoverAmountInput.addEventListener("input", updateHandoverDisplay);
-
     saveDraftBtn.addEventListener("click", saveDraft);
     closeShiftBtn.addEventListener("click", closeShift);
     searchInput.addEventListener("input", renderRows);
@@ -2649,22 +2396,8 @@
 
     function setDefaultFinanceDates() {
       const value = currentShift?.businessDate || getTodayInputDate();
-
       if (!cardDate.value) cardDate.value = value;
       if (!lottoDate.value) lottoDate.value = value;
-    }
-
-    function setHandoverInputFromShift() {
-      if (!currentShift) {
-        handoverAmountInput.value = "";
-        return;
-      }
-
-      if (hasValue(currentShift.handoverAmount)) {
-        handoverAmountInput.value = currentShift.handoverAmount;
-      } else {
-        handoverAmountInput.value = "";
-      }
     }
 
     function updateHeader() {
@@ -2680,7 +2413,6 @@
       quickProductDetails.style.display = isOpenShift() ? "" : "none";
       quickPurchasePriceBox.style.display = isAdmin() ? "" : "none";
       setDefaultFinanceDates();
-      setHandoverInputFromShift();
 
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
@@ -2701,6 +2433,7 @@
       rows = [];
       originalRows = [];
       moneyMovements = [];
+
       shiftTitle.textContent = "Nincs nyitott stand";
       shiftInfo.textContent = "Új stand nyitásához töltsd ki a dátumot és válaszd ki, kié a stand.";
       totalSales.textContent = "0 Ft";
@@ -2715,7 +2448,6 @@
       shiftDate.value = getTodayInputDate();
       cardDate.value = getTodayInputDate();
       lottoDate.value = getTodayInputDate();
-      handoverAmountInput.value = "";
       renderFinance();
 
       if (currentUser && users.some(user => user.id === currentUser.uid)) {
@@ -2804,7 +2536,6 @@
       }
 
       userInfo.textContent = `${currentUserData.name} - ${currentUserData.role === "admin" ? "Admin" : "Dolgozó"}`;
-
       await loadPage();
     });
   </script>
