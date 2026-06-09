@@ -147,3 +147,176 @@ button:hover {
   display: block;
   color: #6b7280;
 }
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.button-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.button-row button {
+  width: auto;
+}
+
+.secondary-dark-btn {
+  background: #4b5563;
+}
+
+.secondary-dark-btn:hover {
+  background: #374151;
+}
+
+.danger-btn {
+  background: #b91c1c;
+}
+
+.danger-btn:hover {
+  background: #991b1b;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.section-header input {
+  max-width: 280px;
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+  min-width: 950px;
+}
+
+.data-table th,
+.data-table td {
+  border-bottom: 1px solid #e5e7eb;
+  padding: 10px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.data-table th {
+  background: #f9fafb;
+  font-size: 14px;
+}
+
+.data-table tr:hover {
+  background: #f9fafb;
+}
+
+.table-input {
+  width: 90px;
+  padding: 8px;
+  font-size: 14px;
+}
+
+.note-input {
+  width: 180px;
+}
+
+.price-input {
+  width: 100px;
+}
+
+.small-btn {
+  width: auto;
+  margin: 0 6px 0 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.action-cell {
+  white-space: nowrap;
+}
+
+.inactive-row {
+  opacity: 0.55;
+}
+
+.review-row {
+  background: #fff7ed;
+}
+
+.mini-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 3px 6px;
+  font-size: 11px;
+  background: #fed7aa;
+  color: #9a3412;
+  border-radius: 999px;
+}
+
+.summary-box {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  padding: 12px 16px;
+  border-radius: 12px;
+}
+
+.summary-box span {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.stand-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.stand-actions input {
+  max-width: 280px;
+}
+
+.stand-actions button {
+  width: auto;
+  margin-top: 0;
+}
+
+.stand-table {
+  min-width: 1250px;
+}
+
+@media (max-width: 700px) {
+  .topbar {
+    align-items: flex-start;
+    gap: 14px;
+    flex-direction: column;
+  }
+
+  .secondary-btn {
+    width: 100%;
+  }
+
+  .stand-actions button,
+  .button-row button {
+    width: 100%;
+  }
+
+  .stand-actions input,
+  .section-header input {
+    max-width: 100%;
+  }
+}
