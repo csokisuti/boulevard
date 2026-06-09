@@ -57,6 +57,8 @@
           <select id="unit">
             <option value="db">db</option>
             <option value="liter">liter</option>
+            <option value="cl">cl</option>
+            <option value="gramm">gramm</option>
             <option value="számoló">számoló</option>
           </select>
         </div>
@@ -689,7 +691,7 @@
       formSummary.textContent = `Termék szerkesztése: ${product.name || ""}`;
       nameInput.value = product.name || "";
       renderCategoryOptions(product.category || "");
-      unitInput.value = ["db", "liter", "számoló"].includes(product.unit) ? product.unit : "db";
+      unitInput.value = ["db", "liter", "cl", "gramm", "számoló"].includes(product.unit) ? product.unit : "db";
       salePriceInput.value = product.salePrice || 0;
       purchasePriceInput.value = product.purchasePrice || 0;
       activeInput.value = product.active === false ? "false" : "true";
