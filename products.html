@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boulevard - Terméklista</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Terméklista</h1>
+      <p id="userInfo">Betöltés...</p>
+    </div>
+    <button id="backBtn" class="secondary-btn">Vissza</button>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <h2 id="formTitle">Új termék</h2>
+
+      <div class="form-grid">
+        <div>
+          <label for="name">Terméknév</label>
+          <input id="name" type="text">
+        </div>
+
+        <div>
+          <label for="category">Kategória</label>
+          <input id="category" type="text" placeholder="pl. Sör, Bor, Kávé">
+        </div>
+
+        <div>
+          <label for="unit">Mértékegység</label>
+          <input id="unit" list="unitList" type="text" placeholder="pl. db">
+          <datalist id="unitList">
+            <option value="db">
+            <option value="üveg">
+            <option value="doboz">
+            <option value="rekesz">
+            <option value="karton">
+            <option value="liter">
+            <option value="dl">
+            <option value="cl">
+            <option value="kg">
+            <option value="g">
+            <option value="adag">
+            <option value="szelet">
+            <option value="csomag">
+          </datalist>
+        </div>
+
+        <div>
+          <label for="salePrice">Eladási ár</label>
+          <input id="salePrice" type="number" min="0">
+        </div>
+
+        <div id="purchasePriceBox">
+          <label for="purchasePrice">Beszerzési ár</label>
+          <input id="purchasePrice" type="number" min="0">
+        </div>
+
+        <div>
+          <label for="insertAfter">Beszúrás helye</label>
+          <select id="insertAfter"></select>
+        </div>
+
+        <div id="activeBox">
+          <label for="active">Aktív</label>
+          <select id="active">
+            <option value="true">Igen</option>
+            <option value="false">Nem</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="saveProductBtn">Mentés</button>
+        <button id="resetBtn" class="secondary-dark-btn">Űrlap törlése</button>
+      </div>
+
+      <div id="message"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <h2>Termékek</h2>
+        <input id="searchInput" type="text" placeholder="Keresés...">
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Sorrend</th>
+              <th>Termék</th>
+              <th>Kategória</th>
+              <th>Egység</th>
+              <th>Eladási ár</th>
+              <th class="admin-only">Beszerzési ár</th>
+              <th>Állapot</th>
+              <th>Ellenőrzés</th>
+              <th>Művelet</th>
+            </tr>
+          </thead>
+          <tbody id="productsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { auth, db } from "./firebase.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    const userInfo = document.getElementById("userInfo");
+    const backBtn = document.getElementById("backBtn");
+    const nameInput = document.getElementById("name");
+    const categoryInput = document.getElementById("category");
+    const unitInput = document.getElementById("unit");
+    const salePriceInput = document.getElementById("salePrice");
+    const purchasePriceInput = document.getElementById("purchasePrice");
+    const purchasePriceBox = document.getElementById("purchasePriceBox");
+    const insertAfter = document.getElementById("insertAfter");
+    const activeInput = document.getElementById("active");
+    const activeBox = document.getElementById("activeBox");
+    const saveProductBtn = document.getElementById("saveProductBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const productsBody = document.getElementById("productsBody");
+    const message = document.getElementById("message");
+    const searchInput = document.getElementById("searchInput");
+    const formTitle = document.getElementById("formTitle");
+
+    let currentUser = null;
+    let currentUserData = null;
+    let allProducts = [];
+    let editingProductId = "";
+
+    backBtn.addEventListener("click", () => {
+      window.location.href = "dashboard.html";
+    });
+
+    function toNumber(value) {
+      const n = Number(String(value || "0").replace(",", "."));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function formatMoney(value) {
+      return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function isAdmin() {
+      return currentUserData && currentUserData.role === "admin";
+    }
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    async function writeLog(action, details) {
+      await addDoc(collection(db, "logs"), {
+        action,
+        details,
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    async function updateCatalogVersion() {
+      await setDoc(doc(db, "settings", "catalog"), {
+        version: Date.now(),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      localStorage.removeItem("boulevardProductsCacheV1");
+    }
+
+    function resetForm() {
+      editingProductId = "";
+      formTitle.textContent = "Új termék";
+      nameInput.value = "";
+      categoryInput.value = "";
+      unitInput.value = "";
+      salePriceInput.value = "";
+      purchasePriceInput.value = "";
+      activeInput.value = "true";
+      rebuildInsertOptions();
+      showMessage("");
+    }
+
+    function rebuildInsertOptions() {
+      insertAfter.innerHTML = "";
+
+      const keep = document.createElement("option");
+      keep.value = "__keep__";
+      keep.textContent = editingProductId ? "Sorrend marad" : "Lista végére";
+      insertAfter.appendChild(keep);
+
+      const start = document.createElement("option");
+      start.value = "__start__";
+      start.textContent = "Lista elejére";
+      insertAfter.appendChild(start);
+
+      const end = document.createElement("option");
+      end.value = "__end__";
+      end.textContent = "Lista végére";
+      insertAfter.appendChild(end);
+
+      allProducts
+        .filter(p => p.id !== editingProductId)
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+        .forEach(product => {
+          const option = document.createElement("option");
+          option.value = product.id;
+          option.textContent = `${product.name} után`;
+          insertAfter.appendChild(option);
+        });
+    }
+
+    function calculateSortOrder(selectedValue, oldProduct) {
+      const ordered = allProducts
+        .filter(p => p.id !== editingProductId)
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+      if (selectedValue === "__keep__" && oldProduct) {
+        return oldProduct.sortOrder || 1000;
+      }
+
+      if (selectedValue === "__keep__" || selectedValue === "__end__") {
+        if (!ordered.length) return 1000;
+        return (ordered[ordered.length - 1].sortOrder || 0) + 1000;
+      }
+
+      if (selectedValue === "__start__") {
+        if (!ordered.length) return 1000;
+        return (ordered[0].sortOrder || 1000) - 1000;
+      }
+
+      const index = ordered.findIndex(p => p.id === selectedValue);
+      if (index === -1) {
+        if (!ordered.length) return 1000;
+        return (ordered[ordered.length - 1].sortOrder || 0) + 1000;
+      }
+
+      const current = ordered[index];
+      const next = ordered[index + 1];
+
+      if (!next) {
+        return (current.sortOrder || 0) + 1000;
+      }
+
+      return ((current.sortOrder || 0) + (next.sortOrder || 0)) / 2;
+    }
+
+    async function loadProducts() {
+      const productsQuery = query(collection(db, "products"), orderBy("sortOrder"));
+      const snap = await getDocs(productsQuery);
+
+      allProducts = [];
+      snap.forEach(item => {
+        allProducts.push({
+          id: item.id,
+          ...item.data()
+        });
+      });
+
+      rebuildInsertOptions();
+      renderProducts();
+    }
+
+    function renderProducts() {
+      const search = searchInput.value.trim().toLowerCase();
+      productsBody.innerHTML = "";
+
+      const visibleProducts = allProducts.filter(product => {
+        const text = `${product.name || ""} ${product.category || ""}`.toLowerCase();
+        return text.includes(search);
+      });
+
+      visibleProducts.forEach((product, index) => {
+        const tr = document.createElement("tr");
+        if (!product.active) tr.classList.add("inactive-row");
+        if (product.adminReviewNeeded) tr.classList.add("review-row");
+
+        tr.innerHTML = `
+          <td>${index + 1}</td>
+          <td>${product.name || ""}</td>
+          <td>${product.category || ""}</td>
+          <td>${product.unit || ""}</td>
+          <td>${formatMoney(product.salePrice)}</td>
+          <td class="admin-only">${formatMoney(product.purchasePrice)}</td>
+          <td>${product.active ? "Aktív" : "Inaktív"}</td>
+          <td>${product.adminReviewNeeded ? "Ellenőrizendő" : "Rendben"}</td>
+          <td class="action-cell">
+            <button class="small-btn" data-action="edit" data-id="${product.id}">Szerkesztés</button>
+            ${isAdmin() && product.adminReviewNeeded ? `<button class="small-btn" data-action="reviewed" data-id="${product.id}">Ellenőrizve</button>` : ""}
+          </td>
+        `;
+
+        productsBody.appendChild(tr);
+      });
+
+      document.querySelectorAll(".admin-only").forEach(el => {
+        el.style.display = isAdmin() ? "" : "none";
+      });
+    }
+
+    function fillForm(product) {
+      editingProductId = product.id;
+      formTitle.textContent = "Termék szerkesztése";
+      nameInput.value = product.name || "";
+      categoryInput.value = product.category || "";
+      unitInput.value = product.unit || "";
+      salePriceInput.value = product.salePrice || 0;
+      purchasePriceInput.value = product.purchasePrice || 0;
+      activeInput.value = product.active ? "true" : "false";
+      rebuildInsertOptions();
+      insertAfter.value = "__keep__";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    async function saveProduct() {
+      const name = nameInput.value.trim();
+      const category = categoryInput.value.trim();
+      const unit = unitInput.value.trim() || "db";
+      const salePrice = toNumber(salePriceInput.value);
+      const purchasePrice = toNumber(purchasePriceInput.value);
+      const oldProduct = editingProductId ? allProducts.find(p => p.id === editingProductId) : null;
+
+      if (!name) {
+        showMessage("A terméknév kötelező.", true);
+        return;
+      }
+
+      if (salePrice < 0) {
+        showMessage("Az eladási ár nem lehet negatív.", true);
+        return;
+      }
+
+      const sortOrder = calculateSortOrder(insertAfter.value, oldProduct);
+
+      const publicData = {
+        name,
+        category,
+        unit,
+        salePrice,
+        sortOrder,
+        active: isAdmin() ? activeInput.value === "true" : true,
+        adminReviewNeeded: !isAdmin(),
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      };
+
+      if (isAdmin()) {
+        publicData.purchasePrice = purchasePrice;
+        publicData.adminReviewNeeded = false;
+      }
+
+      if (editingProductId) {
+        await updateDoc(doc(db, "products", editingProductId), publicData);
+        await writeLog("product_updated", {
+          productId: editingProductId,
+          productName: name,
+          before: oldProduct || null,
+          after: {
+            name,
+            category,
+            unit,
+            salePrice,
+            purchasePrice: isAdmin() ? purchasePrice : oldProduct?.purchasePrice || 0,
+            sortOrder,
+            active: publicData.active
+          }
+        });
+        showMessage("Termék módosítva.");
+      } else {
+        const ref = doc(collection(db, "products"));
+        const createData = {
+          ...publicData,
+          purchasePrice: isAdmin() ? purchasePrice : 0,
+          createdAt: serverTimestamp(),
+          createdBy: currentUser.uid,
+          createdByName: currentUserData.name
+        };
+
+        await setDoc(ref, createData);
+
+        await writeLog("product_created", {
+          productId: ref.id,
+          productName: name,
+          after: {
+            name,
+            category,
+            unit,
+            salePrice,
+            purchasePrice: createData.purchasePrice,
+            sortOrder,
+            active: createData.active
+          }
+        });
+
+        showMessage("Új termék felvéve.");
+      }
+
+      await updateCatalogVersion();
+      resetForm();
+      await loadProducts();
+    }
+
+    async function markReviewed(productId) {
+      const product = allProducts.find(p => p.id === productId);
+      await updateDoc(doc(db, "products", productId), {
+        adminReviewNeeded: false,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name
+      });
+
+      await writeLog("product_reviewed", {
+        productId,
+        productName: product?.name || ""
+      });
+
+      await updateCatalogVersion();
+      await loadProducts();
+    }
+
+    productsBody.addEventListener("click", async (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+
+      const id = button.dataset.id;
+      const action = button.dataset.action;
+      const product = allProducts.find(p => p.id === id);
+
+      if (action === "edit" && product) {
+        fillForm(product);
+      }
+
+      if (action === "reviewed" && product) {
+        await markReviewed(id);
+      }
+    });
+
+    saveProductBtn.addEventListener("click", saveProduct);
+    resetBtn.addEventListener("click", resetForm);
+    searchInput.addEventListener("input", renderProducts);
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+
+      currentUser = user;
+
+      const userSnap = await getDoc(doc(db, "users", user.uid));
+
+      if (!userSnap.exists()) {
+        userInfo.textContent = "Nincs jogosultság.";
+        return;
+      }
+
+      currentUserData = userSnap.data();
+
+      if (!currentUserData.active) {
+        userInfo.textContent = "Inaktív felhasználó.";
+        return;
+      }
+
+      userInfo.textContent = `${currentUserData.name} - ${currentUserData.role === "admin" ? "Admin" : "Dolgozó"}`;
+
+      purchasePriceBox.style.display = isAdmin() ? "" : "none";
+      activeBox.style.display = isAdmin() ? "" : "none";
+
+      await loadProducts();
+    });
+  </script>
+</body>
+</html>

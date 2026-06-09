@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boulevard - Standolás</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Standolás</h1>
+      <p id="userInfo">Betöltés...</p>
+    </div>
+    <button id="backBtn" class="secondary-btn">Vissza</button>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Aktuális műszak</h2>
+          <p id="shiftInfo">Betöltés...</p>
+        </div>
+        <div class="summary-box">
+          <strong>Összes eladási érték:</strong>
+          <span id="totalSales">0 Ft</span>
+        </div>
+      </div>
+
+      <div class="stand-actions">
+        <input id="searchInput" type="text" placeholder="Termék keresése...">
+        <button id="saveDraftBtn">Piszkozat mentése</button>
+        <button id="closeShiftBtn" class="danger-btn">Műszak lezárása</button>
+      </div>
+
+      <div id="message"></div>
+    </section>
+
+    <section class="panel">
+      <div class="table-wrapper">
+        <table class="data-table stand-table">
+          <thead>
+            <tr>
+              <th>Termék</th>
+              <th>Egység</th>
+              <th>Nyitó</th>
+              <th>Nyitó megj.</th>
+              <th>Vételezés</th>
+              <th>Összesen</th>
+              <th>Maradvány</th>
+              <th>Fogyás</th>
+              <th>Készlet most</th>
+              <th>Egységár</th>
+              <th>Eladási érték</th>
+            </tr>
+          </thead>
+          <tbody id="standBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { auth, db } from "./firebase.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    const userInfo = document.getElementById("userInfo");
+    const shiftInfo = document.getElementById("shiftInfo");
+    const standBody = document.getElementById("standBody");
+    const message = document.getElementById("message");
+    const totalSales = document.getElementById("totalSales");
+    const saveDraftBtn = document.getElementById("saveDraftBtn");
+    const closeShiftBtn = document.getElementById("closeShiftBtn");
+    const backBtn = document.getElementById("backBtn");
+    const searchInput = document.getElementById("searchInput");
+
+    let currentUser = null;
+    let currentUserData = null;
+    let currentShift = null;
+    let products = [];
+    let rows = [];
+
+    backBtn.addEventListener("click", () => {
+      window.location.href = "dashboard.html";
+    });
+
+    function toNumber(value) {
+      const n = Number(String(value ?? "0").replace(",", "."));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function hasValue(value) {
+      return value !== "" && value !== null && value !== undefined;
+    }
+
+    function formatMoney(value) {
+      return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    function calc(row) {
+      const opening = toNumber(row.openingFinal);
+      const received = toNumber(row.received);
+      const total = opening + received;
+      const remaining = hasValue(row.remaining) ? toNumber(row.remaining) : null;
+      const consumption = remaining === null ? 0 : total - remaining;
+      const currentStock = remaining === null ? total : remaining;
+      const salesValue = consumption * toNumber(row.salePriceAtShift);
+      const purchaseValue = consumption * toNumber(row.purchasePriceAtShift);
+      const marginValue = salesValue - purchaseValue;
+
+      return {
+        opening,
+        received,
+        total,
+        remaining,
+        consumption,
+        currentStock,
+        salesValue,
+        purchaseValue,
+        marginValue
+      };
+    }
+
+    function openingChanged(row) {
+      return toNumber(row.openingAuto) !== toNumber(row.openingFinal);
+    }
+
+    async function writeLog(action, details) {
+      await addDoc(collection(db, "logs"), {
+        action,
+        details,
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    async function loadProductsCached() {
+      const catalogSnap = await getDoc(doc(db, "settings", "catalog"));
+      const version = catalogSnap.exists() ? String(catalogSnap.data().version || "0") : "0";
+      const cacheRaw = localStorage.getItem("boulevardProductsCacheV1");
+
+      if (cacheRaw) {
+        try {
+          const cache = JSON.parse(cacheRaw);
+          if (cache.version === version && Array.isArray(cache.products)) {
+            return cache.products;
+          }
+        } catch (error) {
+          localStorage.removeItem("boulevardProductsCacheV1");
+        }
+      }
+
+      const snap = await getDocs(collection(db, "products"));
+      const loadedProducts = [];
+
+      snap.forEach(item => {
+        const data = item.data();
+        if (data.active !== false) {
+          loadedProducts.push({
+            id: item.id,
+            ...data
+          });
+        }
+      });
+
+      loadedProducts.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+      localStorage.setItem("boulevardProductsCacheV1", JSON.stringify({
+        version,
+        products: loadedProducts
+      }));
+
+      return loadedProducts;
+    }
+
+    async function getOpenShift() {
+      const q = query(collection(db, "shifts"), where("status", "==", "open"), limit(1));
+      const snap = await getDocs(q);
+
+      if (snap.empty) return null;
+
+      const item = snap.docs[0];
+
+      return {
+        id: item.id,
+        ...item.data()
+      };
+    }
+
+    async function createInitialShift() {
+      const shiftRef = doc(collection(db, "shifts"));
+      const batch = writeBatch(db);
+
+      batch.set(shiftRef, {
+        status: "open",
+        shiftLabel: `Műszak ${new Date().toLocaleString("hu-HU")}`,
+        openedAt: serverTimestamp(),
+        openedBy: currentUser.uid,
+        openedByName: currentUserData.name,
+        totalSalesValue: 0,
+        totalPurchaseValue: 0,
+        totalMarginValue: 0,
+        createdAt: serverTimestamp()
+      });
+
+      products.forEach(product => {
+        const itemRef = doc(db, "shifts", shiftRef.id, "items", product.id);
+        batch.set(itemRef, {
+          productId: product.id,
+          productNameAtShift: product.name || "",
+          unitAtShift: product.unit || "db",
+          categoryAtShift: product.category || "",
+          sortOrderAtShift: product.sortOrder || 0,
+          openingAuto: 0,
+          openingFinal: 0,
+          openingChangeNote: "",
+          received: 0,
+          remaining: "",
+          salePriceAtShift: product.salePrice || 0,
+          purchasePriceAtShift: product.purchasePrice || 0,
+          updatedAt: serverTimestamp()
+        });
+      });
+
+      await batch.commit();
+
+      await writeLog("shift_created", {
+        shiftId: shiftRef.id,
+        reason: "initial"
+      });
+
+      return {
+        id: shiftRef.id,
+        status: "open",
+        shiftLabel: `Műszak ${new Date().toLocaleString("hu-HU")}`,
+        openedBy: currentUser.uid,
+        openedByName: currentUserData.name
+      };
+    }
+
+    async function loadShiftItems(shiftId) {
+      const snap = await getDocs(collection(db, "shifts", shiftId, "items"));
+      const map = new Map();
+
+      snap.forEach(item => {
+        map.set(item.id, {
+          id: item.id,
+          ...item.data()
+        });
+      });
+
+      return map;
+    }
+
+    function mergeRows(itemMap) {
+      rows = products.map(product => {
+        const item = itemMap.get(product.id);
+
+        return {
+          productId: product.id,
+          productNameAtShift: item?.productNameAtShift || product.name || "",
+          unitAtShift: item?.unitAtShift || product.unit || "db",
+          categoryAtShift: item?.categoryAtShift || product.category || "",
+          sortOrderAtShift: product.sortOrder || item?.sortOrderAtShift || 0,
+          openingAuto: item?.openingAuto ?? 0,
+          openingFinal: item?.openingFinal ?? item?.openingAuto ?? 0,
+          openingChangeNote: item?.openingChangeNote || "",
+          received: item?.received ?? 0,
+          remaining: item?.remaining ?? "",
+          salePriceAtShift: item?.salePriceAtShift ?? product.salePrice ?? 0,
+          purchasePriceAtShift: item?.purchasePriceAtShift ?? product.purchasePrice ?? 0,
+          adminReviewNeeded: product.adminReviewNeeded || false
+        };
+      });
+
+      rows.sort((a, b) => (a.sortOrderAtShift || 0) - (b.sortOrderAtShift || 0));
+    }
+
+    function renderRows() {
+      const search = searchInput.value.trim().toLowerCase();
+      standBody.innerHTML = "";
+
+      rows.forEach((row, index) => {
+        const searchable = `${row.productNameAtShift} ${row.categoryAtShift}`.toLowerCase();
+        if (search && !searchable.includes(search)) return;
+
+        const c = calc(row);
+        const tr = document.createElement("tr");
+        tr.dataset.index = index;
+
+        if (openingChanged(row)) {
+          tr.classList.add("review-row");
+        }
+
+        tr.innerHTML = `
+          <td>
+            <strong>${row.productNameAtShift}</strong>
+            ${row.adminReviewNeeded ? `<span class="mini-badge">ellenőrizendő</span>` : ""}
+          </td>
+          <td>${row.unitAtShift}</td>
+          <td><input class="table-input" data-field="openingFinal" value="${row.openingFinal}"></td>
+          <td><input class="table-input note-input" data-field="openingChangeNote" value="${row.openingChangeNote || ""}" placeholder="ha nyitót módosítasz"></td>
+          <td><input class="table-input" data-field="received" value="${row.received}"></td>
+          <td class="calc-total">${c.total}</td>
+          <td><input class="table-input" data-field="remaining" value="${row.remaining}"></td>
+          <td class="calc-consumption">${c.consumption}</td>
+          <td class="calc-current">${c.currentStock}</td>
+          <td><input class="table-input price-input" data-field="salePriceAtShift" value="${row.salePriceAtShift}"></td>
+          <td class="calc-sales">${formatMoney(c.salesValue)}</td>
+        `;
+
+        standBody.appendChild(tr);
+      });
+
+      updateTotalSales();
+    }
+
+    function updateRowDisplay(tr, row) {
+      const c = calc(row);
+      tr.querySelector(".calc-total").textContent = c.total;
+      tr.querySelector(".calc-consumption").textContent = c.consumption;
+      tr.querySelector(".calc-current").textContent = c.currentStock;
+      tr.querySelector(".calc-sales").textContent = formatMoney(c.salesValue);
+
+      if (openingChanged(row)) {
+        tr.classList.add("review-row");
+      } else {
+        tr.classList.remove("review-row");
+      }
+
+      updateTotalSales();
+    }
+
+    function updateTotalSales() {
+      const total = rows.reduce((sum, row) => sum + calc(row).salesValue, 0);
+      totalSales.textContent = formatMoney(total);
+    }
+
+    function validateRows(closing = false) {
+      for (const row of rows) {
+        if (openingChanged(row) && !String(row.openingChangeNote || "").trim()) {
+          return `Nyitó módosításnál kötelező a megjegyzés: ${row.productNameAtShift}`;
+        }
+
+        if (closing && !hasValue(row.remaining)) {
+          return `Műszak zárásához minden maradványt ki kell tölteni: ${row.productNameAtShift}`;
+        }
+      }
+
+      return "";
+    }
+
+    function itemDataFromRow(row) {
+      const c = calc(row);
+
+      return {
+        productId: row.productId,
+        productNameAtShift: row.productNameAtShift,
+        unitAtShift: row.unitAtShift,
+        categoryAtShift: row.categoryAtShift,
+        sortOrderAtShift: row.sortOrderAtShift,
+        openingAuto: toNumber(row.openingAuto),
+        openingFinal: toNumber(row.openingFinal),
+        openingChangeNote: String(row.openingChangeNote || "").trim(),
+        openingChanged: openingChanged(row),
+        received: toNumber(row.received),
+        total: c.total,
+        remaining: hasValue(row.remaining) ? toNumber(row.remaining) : "",
+        consumption: c.consumption,
+        currentStock: c.currentStock,
+        salePriceAtShift: toNumber(row.salePriceAtShift),
+        purchasePriceAtShift: toNumber(row.purchasePriceAtShift),
+        salesValue: c.salesValue,
+        purchaseValue: c.purchaseValue,
+        marginValue: c.marginValue,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      };
+    }
+
+    async function saveDraft() {
+      const error = validateRows(false);
+
+      if (error) {
+        showMessage(error, true);
+        return;
+      }
+
+      const batch = writeBatch(db);
+
+      rows.forEach(row => {
+        const itemRef = doc(db, "shifts", currentShift.id, "items", row.productId);
+        batch.set(itemRef, itemDataFromRow(row), { merge: true });
+      });
+
+      batch.set(doc(db, "shifts", currentShift.id), {
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      await batch.commit();
+
+      await writeLog("shift_draft_saved", {
+        shiftId: currentShift.id
+      });
+
+      showMessage("Piszkozat mentve.");
+    }
+
+    async function closeShift() {
+      const error = validateRows(true);
+
+      if (error) {
+        showMessage(error, true);
+        return;
+      }
+
+      const confirmClose = confirm("Biztosan lezárod a műszakot? Lezárás után automatikusan elindul a következő műszak.");
+
+      if (!confirmClose) return;
+
+      const totalSalesValue = rows.reduce((sum, row) => sum + calc(row).salesValue, 0);
+      const totalPurchaseValue = rows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
+      const totalMarginValue = totalSalesValue - totalPurchaseValue;
+      const nextShiftRef = doc(collection(db, "shifts"));
+      const batch = writeBatch(db);
+
+      rows.forEach(row => {
+        const itemRef = doc(db, "shifts", currentShift.id, "items", row.productId);
+        batch.set(itemRef, itemDataFromRow(row), { merge: true });
+      });
+
+      batch.set(doc(db, "shifts", currentShift.id), {
+        status: "closed",
+        closedAt: serverTimestamp(),
+        closedBy: currentUser.uid,
+        closedByName: currentUserData.name,
+        totalSalesValue,
+        totalPurchaseValue,
+        totalMarginValue,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      batch.set(nextShiftRef, {
+        status: "open",
+        shiftLabel: `Műszak ${new Date().toLocaleString("hu-HU")}`,
+        openedAt: serverTimestamp(),
+        openedBy: currentUser.uid,
+        openedByName: currentUserData.name,
+        previousShiftId: currentShift.id,
+        totalSalesValue: 0,
+        totalPurchaseValue: 0,
+        totalMarginValue: 0,
+        createdAt: serverTimestamp()
+      });
+
+      rows.forEach(row => {
+        const c = calc(row);
+        const nextItemRef = doc(db, "shifts", nextShiftRef.id, "items", row.productId);
+
+        batch.set(nextItemRef, {
+          productId: row.productId,
+          productNameAtShift: row.productNameAtShift,
+          unitAtShift: row.unitAtShift,
+          categoryAtShift: row.categoryAtShift,
+          sortOrderAtShift: row.sortOrderAtShift,
+          openingAuto: c.remaining,
+          openingFinal: c.remaining,
+          openingChangeNote: "",
+          openingChanged: false,
+          received: 0,
+          total: c.remaining,
+          remaining: "",
+          consumption: 0,
+          currentStock: c.remaining,
+          salePriceAtShift: toNumber(row.salePriceAtShift),
+          purchasePriceAtShift: toNumber(row.purchasePriceAtShift),
+          salesValue: 0,
+          purchaseValue: 0,
+          marginValue: 0,
+          updatedAt: serverTimestamp()
+        });
+      });
+
+      rows.forEach(row => {
+        if (openingChanged(row)) {
+          const logRef = doc(collection(db, "logs"));
+          batch.set(logRef, {
+            action: "opening_changed",
+            details: {
+              shiftId: currentShift.id,
+              productId: row.productId,
+              productName: row.productNameAtShift,
+              openingAuto: toNumber(row.openingAuto),
+              openingFinal: toNumber(row.openingFinal),
+              note: row.openingChangeNote || ""
+            },
+            userId: currentUser.uid,
+            userName: currentUserData.name,
+            userRole: currentUserData.role,
+            createdAt: serverTimestamp()
+          });
+        }
+      });
+
+      const closeLogRef = doc(collection(db, "logs"));
+      batch.set(closeLogRef, {
+        action: "shift_closed",
+        details: {
+          shiftId: currentShift.id,
+          nextShiftId: nextShiftRef.id,
+          totalSalesValue,
+          totalPurchaseValue,
+          totalMarginValue
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+
+      showMessage("Műszak lezárva, új műszak elindítva.");
+      await loadPage();
+    }
+
+    standBody.addEventListener("input", (event) => {
+      const input = event.target.closest("input");
+      if (!input) return;
+
+      const tr = input.closest("tr");
+      const index = Number(tr.dataset.index);
+      const field = input.dataset.field;
+
+      rows[index][field] = input.value;
+      updateRowDisplay(tr, rows[index]);
+    });
+
+    saveDraftBtn.addEventListener("click", saveDraft);
+    closeShiftBtn.addEventListener("click", closeShift);
+    searchInput.addEventListener("input", renderRows);
+
+    async function loadPage() {
+      showMessage("");
+      products = await loadProductsCached();
+
+      if (!products.length) {
+        shiftInfo.textContent = "Nincs aktív termék. Először vigyél fel termékeket a terméklistában.";
+        rows = [];
+        renderRows();
+        return;
+      }
+
+      currentShift = await getOpenShift();
+
+      if (!currentShift) {
+        currentShift = await createInitialShift();
+      }
+
+      shiftInfo.textContent = `${currentShift.shiftLabel || "Aktuális műszak"} - ${currentShift.status === "open" ? "nyitva" : currentShift.status}`;
+
+      const itemMap = await loadShiftItems(currentShift.id);
+      mergeRows(itemMap);
+      renderRows();
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+
+      currentUser = user;
+
+      const userSnap = await getDoc(doc(db, "users", user.uid));
+
+      if (!userSnap.exists()) {
+        userInfo.textContent = "Nincs jogosultság.";
+        return;
+      }
+
+      currentUserData = userSnap.data();
+
+      if (!currentUserData.active) {
+        userInfo.textContent = "Inaktív felhasználó.";
+        return;
+      }
+
+      userInfo.textContent = `${currentUserData.name} - ${currentUserData.role === "admin" ? "Admin" : "Dolgozó"}`;
+
+      await loadPage();
+    });
+  </script>
+</body>
+</html>
