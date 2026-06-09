@@ -631,6 +631,18 @@ button:disabled {
   color: #d1d5db;
 }
 
+.finance-block {
+  margin-top: 28px;
+  padding: 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.finance-block h3 {
+  margin-top: 0;
+}
+
 .finance-section {
   margin-top: 24px;
 }
