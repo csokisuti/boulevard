@@ -827,3 +827,21 @@ button:disabled {
 .debt-edit-note-input {
   min-width: 110px;
 }
+
+.reports-table {
+  min-width: 1200px;
+}
+
+.report-insights-box {
+  margin: 18px 24px 24px;
+  display: grid;
+  gap: 10px;
+}
+
+.report-insight-item {
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+  line-height: 1.45;
+}
