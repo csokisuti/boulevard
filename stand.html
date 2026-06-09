@@ -598,6 +598,15 @@
         debt.createdShiftId === currentShift.id;
     }
 
+    function canDeleteDebtToday(debt) {
+      return isOpenShift() &&
+        can("canDeleteTodayDebt") &&
+        debt &&
+        debt.status !== "paid" &&
+        debt.createdShiftId === currentShift.id &&
+        toNumber(debt.paidAmount) === 0;
+    }
+
     function debtStatusAfter(originalAmount, paidAmount) {
       const remainingAmount = originalAmount - paidAmount;
       if (remainingAmount <= 0) return "paid";
@@ -905,6 +914,7 @@
       openDebts.forEach(debt => {
         const tr = document.createElement("tr");
         const canEditToday = canEditDebtToday(debt);
+        const canDeleteToday = canDeleteDebtToday(debt);
 
         tr.innerHTML = `
           <td>${formatDateTime(debt.createdAt)}</td>
@@ -926,7 +936,9 @@
               : escapeHtml(debt.note || "")}
           </td>
           <td>
-            ${canEditToday ? `<button class="small-btn secondary-inline-btn" data-action="edit-today-debt" data-id="${debt.id}">Javítás</button>` : `<span class="muted-cell">—</span>`}
+            ${canEditToday ? `<button class="small-btn secondary-inline-btn" data-action="edit-today-debt" data-id="${debt.id}">Javítás</button>` : ""}
+            ${canDeleteToday ? `<button class="danger-small-btn" data-action="delete-today-debt" data-id="${debt.id}">Törlés</button>` : ""}
+            ${!canEditToday && !canDeleteToday ? `<span class="muted-cell">—</span>` : ""}
           </td>
         `;
         openDebtsBody.appendChild(tr);
@@ -2133,6 +2145,93 @@
       await refreshMoneyAfterSave("Aznapi tartozás javítva és a leadó újraszámolva.");
     }
 
+    async function deleteTodayDebt(debtId) {
+      if (!can("canDeleteTodayDebt")) {
+        showMessage("Nincs jogosultságod az aznapi tartozás törléséhez.", true);
+        return;
+      }
+
+      if (!isOpenShift()) {
+        showMessage("Tartozást törölni csak nyitott stand mellett lehet.", true);
+        return;
+      }
+
+      const debt = openDebts.find(item => item.id === debtId);
+
+      if (!debt) {
+        showMessage("Nem található ez a tartozás.", true);
+        return;
+      }
+
+      if (!canDeleteDebtToday(debt)) {
+        showMessage("Csak az aktuális nyitott standban felírt, még be nem fizetett tartozás törölhető.", true);
+        return;
+      }
+
+      const before = {
+        name: debt.name || "",
+        originalAmount: toNumber(debt.originalAmount),
+        paidAmount: toNumber(debt.paidAmount),
+        remainingAmount: toNumber(debt.remainingAmount),
+        note: debt.note || "",
+        status: debt.status || "open",
+        createdShiftId: debt.createdShiftId || "",
+        createdShiftLabel: debt.createdShiftLabel || ""
+      };
+
+      const confirmed = confirm(`Biztosan törlöd ezt az aznapi tartozást?
+${before.name}: ${formatMoney(before.originalAmount)}
+
+A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
+
+      if (!confirmed) return;
+
+      const batch = writeBatch(db);
+      const deletedMovementIds = [];
+
+      moneyMovements.forEach(item => {
+        if (item.type === "debt_create" && item.debtId === debtId) {
+          deletedMovementIds.push(item.id);
+          batch.delete(doc(db, "shifts", currentShift.id, "moneyMovements", item.id));
+        }
+      });
+
+      if (!deletedMovementIds.length) {
+        const movementsSnap = await getDocs(collection(db, "shifts", currentShift.id, "moneyMovements"));
+
+        movementsSnap.forEach(item => {
+          const data = item.data();
+
+          if (data.type === "debt_create" && data.debtId === debtId) {
+            deletedMovementIds.push(item.id);
+            batch.delete(doc(db, "shifts", currentShift.id, "moneyMovements", item.id));
+          }
+        });
+      }
+
+      batch.delete(doc(db, "debts", debtId));
+
+      const logRef = doc(collection(db, "logs"));
+      batch.set(logRef, {
+        action: "today_debt_deleted_from_stand_page",
+        details: {
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          debtId,
+          before,
+          deletedMovementIds,
+          effectRemoved: movementEffect("debt_create", before.originalAmount)
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+      await refreshMoneyAfterSave("Aznapi tartozás törölve, a kapcsolódó pénzmozgás eltávolítva, a leadó újraszámolva.");
+    }
+
     async function addMoneyMovement() {
       const selectedType = moneyType.value;
 
@@ -2506,18 +2605,22 @@
       const action = button.dataset.action;
       const id = button.dataset.id;
 
-      if (action !== "edit-today-debt") return;
+      if (action === "edit-today-debt") {
+        const nameInput = document.querySelector(`.debt-edit-name-input[data-id="${id}"]`);
+        const amountInput = document.querySelector(`.debt-edit-amount-input[data-id="${id}"]`);
+        const noteInput = document.querySelector(`.debt-edit-note-input[data-id="${id}"]`);
 
-      const nameInput = document.querySelector(`.debt-edit-name-input[data-id="${id}"]`);
-      const amountInput = document.querySelector(`.debt-edit-amount-input[data-id="${id}"]`);
-      const noteInput = document.querySelector(`.debt-edit-note-input[data-id="${id}"]`);
+        await editTodayDebt(
+          id,
+          nameInput ? nameInput.value : "",
+          amountInput ? amountInput.value : 0,
+          noteInput ? noteInput.value : ""
+        );
+      }
 
-      await editTodayDebt(
-        id,
-        nameInput ? nameInput.value : "",
-        amountInput ? amountInput.value : 0,
-        noteInput ? noteInput.value : ""
-      );
+      if (action === "delete-today-debt") {
+        await deleteTodayDebt(id);
+      }
     });
 
     standBody.addEventListener("input", (event) => {

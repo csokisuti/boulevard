@@ -29,6 +29,7 @@ export const PERMISSION_GROUPS = [
       ["canViewDebts", "Tartozások megtekintése"],
       ["canCreateDebt", "Új tartozás felírása"],
       ["canEditTodayDebt", "Aznapi tartozás javítása"],
+      ["canDeleteTodayDebt", "Aznapi tartozás törlése"],
       ["canPayDebt", "Tartozás befizetés rögzítése"]
     ]
   },
@@ -81,6 +82,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     canViewDebts: true,
     canCreateDebt: true,
     canEditTodayDebt: true,
+    canDeleteTodayDebt: true,
     canPayDebt: true,
     canViewProducts: true,
     canCreateProducts: false,
