@@ -1067,3 +1067,15 @@ button:disabled {
     padding: 4px;
   }
 }
+
+
+.print-category-row td {
+  background: #dbeafe !important;
+  color: #1e3a8a;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.print-table td:last-child {
+  min-width: 180px;
+}

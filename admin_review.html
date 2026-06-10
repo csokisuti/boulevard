@@ -585,6 +585,18 @@
         reviewedByName: currentUserData.name
       }, { merge: true });
 
+      if (item && item.productId) {
+        await setDoc(doc(db, "products", item.productId), {
+          adminReviewNeeded: false,
+          reviewedAt: serverTimestamp(),
+          reviewedBy: currentUser.uid,
+          reviewedByName: currentUserData.name,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        }, { merge: true });
+      }
+
       await addDoc(collection(db, "logs"), {
         action: "price_change_reviewed",
         details: {

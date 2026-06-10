@@ -29,10 +29,8 @@
 
     <section class="print-summary-grid">
       <div><span>Pultforgalom</span><strong id="sumSales">0 Ft</strong></div>
-      <div><span>Beszerzési érték</span><strong id="sumPurchase">0 Ft</strong></div>
-      <div><span>Árrés</span><strong id="sumMargin">0 Ft</strong></div>
-      <div><span>Árrés %</span><strong id="sumMarginPercent">0%</strong></div>
       <div><span>Bankkártya</span><strong id="sumCard">0 Ft</strong></div>
+      <div><span>Lottó forgalom</span><strong id="sumLotto">0 Ft</strong></div>
       <div><span>Leadó</span><strong id="sumHandover">0 Ft</strong></div>
     </section>
 
@@ -48,7 +46,6 @@
           <thead>
             <tr>
               <th>Termék</th>
-              <th>Kat.</th>
               <th>Egys.</th>
               <th>Nyitó</th>
               <th>Bejövő</th>
@@ -58,9 +55,7 @@
               <th>Fogyás</th>
               <th>Egységár</th>
               <th>Eladás</th>
-              <th>Beszerzés</th>
-              <th>Árrés</th>
-              <th>Megj.</th>
+              <th>Megjegyzés / módosítás</th>
             </tr>
           </thead>
           <tbody id="itemsBody"></tbody>
@@ -114,10 +109,8 @@
     const financeSummary = document.getElementById("financeSummary");
 
     const sumSales = document.getElementById("sumSales");
-    const sumPurchase = document.getElementById("sumPurchase");
-    const sumMargin = document.getElementById("sumMargin");
-    const sumMarginPercent = document.getElementById("sumMarginPercent");
     const sumCard = document.getElementById("sumCard");
+    const sumLotto = document.getElementById("sumLotto");
     const sumHandover = document.getElementById("sumHandover");
 
     backBtn.addEventListener("click", () => {
@@ -211,6 +204,38 @@
       return { opening, receivedIn, receivedOut, total, remaining, consumption, salePrice, purchasePrice, salesValue, purchaseValue, marginValue };
     }
 
+    function itemDetailNote(item, c) {
+      const notes = [];
+
+      if (item.openingChanged) {
+        const autoOpening = hasValue(item.openingAuto) ? toNumber(item.openingAuto) : 0;
+        const finalOpening = hasValue(item.openingFinal) ? toNumber(item.openingFinal) : autoOpening;
+        notes.push(`Nyitó módosult: ${formatNumber(autoOpening)} → ${formatNumber(finalOpening)}${item.openingChangeNote ? ` (${item.openingChangeNote})` : ""}`);
+      }
+
+      if (c.receivedIn) {
+        notes.push(`Bejövő áru: +${formatNumber(c.receivedIn)}`);
+      }
+
+      if (c.receivedOut) {
+        notes.push(`Lejárat / kivétel: -${formatNumber(c.receivedOut)}${item.receivedNote ? ` (${item.receivedNote})` : ""}`);
+      }
+
+      if (!c.receivedOut && item.receivedNote) {
+        notes.push(`Megjegyzés: ${item.receivedNote}`);
+      }
+
+      if (item.catalogPriceChangedInShift) {
+        notes.push(`Listaár frissült: ${formatMoney(item.catalogPriceChangeBefore || 0)} → ${formatMoney(item.catalogPriceChangeAfter || item.salePriceAtShift || 0)}${item.catalogPriceChangedByName ? ` (${item.catalogPriceChangedByName})` : ""}`);
+      }
+
+      if (item.standPriceChangedInShift) {
+        notes.push(`Stand ár módosult: ${formatMoney(item.standPriceChangeBefore || 0)} → ${formatMoney(item.standPriceChangeAfter || item.salePriceAtShift || 0)}${item.standPriceChangedByName ? ` (${item.standPriceChangedByName})` : ""}`);
+      }
+
+      return notes.length ? notes.join("; ") : "-";
+    }
+
     function movementLabel(type) {
       if (type === "product_sales") return "Pultforgalom";
       if (type === "income") return "Egyéb bevétel";
@@ -287,15 +312,10 @@
       });
 
       const totalSales = items.reduce((sum, item) => sum + itemCalc(item).salesValue, 0);
-      const totalPurchase = items.reduce((sum, item) => sum + itemCalc(item).purchaseValue, 0);
-      const totalMargin = totalSales - totalPurchase;
-      const marginPercent = totalSales ? (totalMargin / totalSales) * 100 : 0;
 
       sumSales.textContent = formatMoney(totalSales);
-      sumPurchase.textContent = formatMoney(totalPurchase);
-      sumMargin.textContent = formatMoney(totalMargin);
-      sumMarginPercent.textContent = `${formatNumber(marginPercent)}%`;
       sumCard.textContent = formatMoney(shift.totalCardPayment || 0);
+      sumLotto.textContent = formatMoney(shift.totalLottoTurnover || 0);
       sumHandover.textContent = formatMoney(shift.totalCashExpected || shift.handoverAmount || 0);
 
       printTitle.textContent = `Stand riport - ${shiftDateLabel(shift)}`;
@@ -314,15 +334,37 @@
 
       itemsBody.innerHTML = "";
       if (!items.length) {
-        itemsBody.innerHTML = `<tr><td colspan="14">Nincs tétel.</td></tr>`;
+        itemsBody.innerHTML = `<tr><td colspan="11">Nincs tétel.</td></tr>`;
       } else {
-        items.forEach(item => {
-          const c = itemCalc(item);
+        let currentCategory = "";
+        let categorySales = 0;
+        let categoryConsumption = 0;
+
+        function appendCategoryRow(category, sales, consumption) {
           const tr = document.createElement("tr");
-          const note = item.receivedNote || item.openingChangeNote || "";
+          tr.className = "print-category-row";
+          tr.innerHTML = `<td colspan="11">${escapeHtml(category || "Egyéb")} összesen: ${formatMoney(sales)} | fogyás: ${formatNumber(consumption)}</td>`;
+          itemsBody.appendChild(tr);
+        }
+
+        items.forEach((item, index) => {
+          const c = itemCalc(item);
+          const category = String(item.categoryAtShift || "Egyéb").trim() || "Egyéb";
+
+          if (category !== currentCategory) {
+            if (currentCategory) appendCategoryRow(currentCategory, categorySales, categoryConsumption);
+            currentCategory = category;
+            categorySales = 0;
+            categoryConsumption = 0;
+          }
+
+          categorySales += c.salesValue;
+          categoryConsumption += c.consumption;
+
+          const tr = document.createElement("tr");
+          const note = itemDetailNote(item, c);
           tr.innerHTML = `
             <td>${escapeHtml(item.productNameAtShift || "-")}</td>
-            <td>${escapeHtml(item.categoryAtShift || "-")}</td>
             <td>${escapeHtml(item.unitAtShift || "-")}</td>
             <td>${formatNumber(item.openingFinal ?? item.openingAuto ?? 0)}</td>
             <td>${formatNumber(c.receivedIn)}</td>
@@ -332,11 +374,13 @@
             <td>${formatNumber(c.consumption)}</td>
             <td>${formatMoney(c.salePrice)}</td>
             <td>${formatMoney(c.salesValue)}</td>
-            <td>${formatMoney(c.purchaseValue)}</td>
-            <td>${formatMoney(c.marginValue)}</td>
             <td>${escapeHtml(note)}</td>
           `;
           itemsBody.appendChild(tr);
+
+          if (index === items.length - 1) {
+            appendCategoryRow(currentCategory, categorySales, categoryConsumption);
+          }
         });
       }
 
@@ -365,6 +409,7 @@
         metaLine("Előző stand leadó", formatMoney(shift.totalPreviousHandover || 0)),
         metaLine("Pultforgalom", formatMoney(totalSales)),
         metaLine("Bankkártya", formatMoney(shift.totalCardPayment || 0)),
+        metaLine("Lottó forgalom", formatMoney(shift.totalLottoTurnover || 0)),
         metaLine("Lottó forgalom", formatMoney(shift.totalLottoTurnover || 0)),
         metaLine("Repi", formatMoney(shift.totalRepi || 0)),
         metaLine("Egyéb bevétel", formatMoney(shift.totalMoneyIncome || 0)),
