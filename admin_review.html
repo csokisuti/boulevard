@@ -78,7 +78,7 @@
     </details>
 
     <details class="panel collapsible-panel">
-      <summary>Negatív vételezések (<span id="negativeReceivedCardCount">0</span>)</summary>
+      <summary>Lejárat / kivétel (<span id="negativeReceivedCardCount">0</span>)</summary>
       <p class="muted-cell">Itt azok a standok jelennek meg, ahol negatív vételezés történt, és ezért admin ellenőrzés javasolt.</p>
       <div class="table-wrapper"><table class="data-table admin-log-table"><thead><tr><th>Időpont</th><th>Felhasználó</th><th>Részletek</th><th>Állapot</th><th>Művelet</th></tr></thead><tbody id="negativeReceivedLogsBody"></tbody></table></div>
     </details>
@@ -213,6 +213,18 @@
       return String(log.userRole || "").toLowerCase() !== "admin";
     }
 
+    function openItems(list) {
+      return list.filter(item => !item.reviewed);
+    }
+
+    function reviewedItems(list) {
+      return list.filter(item => item.reviewed);
+    }
+
+    function reviewSeparatorRow(title, count) {
+      return `<tr class="review-separator-row"><td colspan="5">${escapeHtml(title)} (${count})</td></tr>`;
+    }
+
     function logStatusHtml(log) {
       if (log.reviewed) return `<span class="status-pill ok">Ellenőrizve</span><div class="muted-cell">${escapeHtml(log.reviewedByName || "")}</div>`;
       return `<span class="status-pill warning">Nyitott</span>`;
@@ -334,7 +346,7 @@
       const details = log.details || {};
       const rows = [detailLine("Stand", escapeHtml(details.shiftLabel || "-")), detailLine("Dátum", escapeHtml(details.businessDate ? formatBusinessDate(details.businessDate) : "-"))];
       if (Array.isArray(details.negativeReceivedNotes)) {
-        rows.push(`<div><strong>Negatív vételezések:</strong></div>`);
+        rows.push(`<div><strong>Lejárat / kivétel:</strong></div>`);
         details.negativeReceivedNotes.forEach(item => rows.push(`<div class="admin-detail-indent">${escapeHtml(item.productName || "-")}: ${escapeHtml(String(item.received ?? "-"))} - ${escapeHtml(item.note || "-")}</div>`));
       }
       return rows.join("");
@@ -342,11 +354,16 @@
 
     function renderLogRows(target, list, detailsRenderer) {
       target.innerHTML = "";
-      if (!list.length) {
+
+      const open = openItems(list);
+      const reviewed = reviewedItems(list).slice(0, 30);
+
+      if (!open.length && !reviewed.length) {
         target.innerHTML = `<tr><td colspan="5">Nincs ilyen esemény.</td></tr>`;
         return;
       }
-      list.forEach(log => {
+
+      function appendRow(log) {
         const tr = document.createElement("tr");
         if (!log.reviewed) tr.classList.add("review-row");
         tr.innerHTML = `
@@ -357,18 +374,31 @@
           <td class="action-cell">${logActionButton(log)}</td>
         `;
         target.appendChild(tr);
-      });
+      }
+
+      if (open.length) {
+        target.insertAdjacentHTML("beforeend", reviewSeparatorRow("Ellenőrzésre vár", open.length));
+        open.forEach(appendRow);
+      }
+
+      if (reviewed.length) {
+        target.insertAdjacentHTML("beforeend", reviewSeparatorRow("Már ellenőrzött, legutóbbi tételek", reviewed.length));
+        reviewed.forEach(appendRow);
+      }
     }
 
     function renderPriceChangeRows(target, list) {
       target.innerHTML = "";
 
-      if (!list.length) {
+      const open = openItems(list);
+      const reviewed = reviewedItems(list).slice(0, 30);
+
+      if (!open.length && !reviewed.length) {
         target.innerHTML = `<tr><td colspan="5">Nincs ármódosítás.</td></tr>`;
         return;
       }
 
-      list.forEach(item => {
+      function appendRow(item) {
         const tr = document.createElement("tr");
         if (!item.reviewed) tr.classList.add("review-row");
         tr.innerHTML = `
@@ -379,10 +409,20 @@
           <td class="action-cell">${priceChangeActionButton(item)}</td>
         `;
         target.appendChild(tr);
-      });
+      }
+
+      if (open.length) {
+        target.insertAdjacentHTML("beforeend", reviewSeparatorRow("Ellenőrzésre vár", open.length));
+        open.forEach(appendRow);
+      }
+
+      if (reviewed.length) {
+        target.insertAdjacentHTML("beforeend", reviewSeparatorRow("Már ellenőrzött, legutóbbi tételek", reviewed.length));
+        reviewed.forEach(appendRow);
+      }
     }
 
-    function renderReviewProducts() {
+        function renderReviewProducts() {
       reviewProductsBody.innerHTML = "";
       productCardCount.textContent = String(reviewProducts.length);
       if (!reviewProducts.length) {
@@ -420,20 +460,27 @@
     function renderSummaries() {
       const lists = filteredLists();
       summaryProducts.textContent = String(reviewProducts.length);
-      summaryClosedShiftModified.textContent = String(lists.closedShiftModified.length);
-      summaryOpeningChanges.textContent = String(lists.openingChanged.length);
-      summaryWorkerProducts.textContent = String(lists.workerProductCreated.length);
-      summaryPriceChanges.textContent = String(lists.priceChanges.length);
-      summaryDebtDeletes.textContent = String(lists.debtDeletes.length);
-      summaryNegativeReceived.textContent = String(lists.negativeReceived.length);
-      closedShiftCardCount.textContent = String(lists.closedShiftModified.length);
-      openingCardCount.textContent = String(lists.openingChanged.length);
-      workerProductCardCount.textContent = String(lists.workerProductCreated.length);
-      priceChangeCardCount.textContent = String(lists.priceChanges.length);
-      debtDeleteCardCount.textContent = String(lists.debtDeletes.length);
-      negativeReceivedCardCount.textContent = String(lists.negativeReceived.length);
-      const totalHighlights = reviewProducts.length + lists.closedShiftModified.length + lists.openingChanged.length + lists.workerProductCreated.length + lists.priceChanges.length + lists.debtDeletes.length + lists.negativeReceived.length;
-      reviewInfo.textContent = `${totalHighlights} kiemelt ellenőrzendő tétel a szűrt admin nézetben`;
+      const openClosedShiftModified = openItems(lists.closedShiftModified).length;
+      const openOpeningChanged = openItems(lists.openingChanged).length;
+      const openWorkerProductCreated = openItems(lists.workerProductCreated).length;
+      const openPriceChanges = openItems(lists.priceChanges).length;
+      const openDebtDeletes = openItems(lists.debtDeletes).length;
+      const openNegativeReceived = openItems(lists.negativeReceived).length;
+
+      summaryClosedShiftModified.textContent = String(openClosedShiftModified);
+      summaryOpeningChanges.textContent = String(openOpeningChanged);
+      summaryWorkerProducts.textContent = String(openWorkerProductCreated);
+      summaryPriceChanges.textContent = String(openPriceChanges);
+      summaryDebtDeletes.textContent = String(openDebtDeletes);
+      summaryNegativeReceived.textContent = String(openNegativeReceived);
+      closedShiftCardCount.textContent = String(openClosedShiftModified);
+      openingCardCount.textContent = String(openOpeningChanged);
+      workerProductCardCount.textContent = String(openWorkerProductCreated);
+      priceChangeCardCount.textContent = String(openPriceChanges);
+      debtDeleteCardCount.textContent = String(openDebtDeletes);
+      negativeReceivedCardCount.textContent = String(openNegativeReceived);
+      const totalHighlights = reviewProducts.length + openClosedShiftModified + openOpeningChanged + openWorkerProductCreated + openPriceChanges + openDebtDeletes + openNegativeReceived;
+      reviewInfo.textContent = `${totalHighlights} még nem ellenőrzött kiemelt tétel`;
       renderLogRows(closedShiftLogsBody, lists.closedShiftModified, renderClosedShiftDetails);
       renderLogRows(openingLogsBody, lists.openingChanged, renderOpeningChangeDetails);
       renderLogRows(workerProductLogsBody, lists.workerProductCreated, renderWorkerProductCreateDetails);

@@ -127,8 +127,9 @@
               <th>Termék</th>
               <th>Egység</th>
               <th>Nyitó</th>
-              <th>Vételezés</th>
-              <th>Vét. megj.</th>
+              <th>Bejövő áru</th>
+              <th>Lejárat / kivétel</th>
+              <th>Kivétel megj.</th>
               <th>Összesen</th>
               <th>Maradvány / záró</th>
               <th>Fogyás</th>
@@ -652,8 +653,25 @@
       return !!row.unlockedFields[field];
     }
 
+    function receivedInValue(row) {
+      if (hasValue(row.receivedIn)) return toNumber(row.receivedIn);
+      const legacyReceived = toNumber(row.received);
+      return legacyReceived > 0 ? legacyReceived : 0;
+    }
+
+    function receivedOutValue(row) {
+      if (hasValue(row.receivedOut)) return toNumber(row.receivedOut);
+      const legacyReceived = toNumber(row.received);
+      return legacyReceived < 0 ? Math.abs(legacyReceived) : 0;
+    }
+
+    function receivedNetValue(row) {
+      if (isCounterUnit(row)) return 0;
+      return receivedInValue(row) - receivedOutValue(row);
+    }
+
     function receivedNeedsNote(row) {
-      return !isCounterUnit(row) && toNumber(row.received) < 0;
+      return !isCounterUnit(row) && receivedOutValue(row) > 0;
     }
 
     function movementEffect(type, amount) {
@@ -710,7 +728,9 @@
 
     function calc(row) {
       const opening = toNumber(row.openingFinal);
-      const received = toNumber(row.received);
+      const receivedIn = receivedInValue(row);
+      const receivedOut = receivedOutValue(row);
+      const received = receivedIn - receivedOut;
       const remaining = hasValue(row.remaining) ? toNumber(row.remaining) : null;
       const counter = isCounterUnit(row);
 
@@ -723,6 +743,8 @@
 
         return {
           opening,
+          receivedIn: 0,
+          receivedOut: 0,
           received: 0,
           total: opening,
           remaining,
@@ -743,6 +765,8 @@
 
       return {
         opening,
+        receivedIn,
+        receivedOut,
         received,
         total,
         remaining,
@@ -1038,6 +1062,8 @@
         openingFinal: opening,
         openingChangeNote: "",
         openingChanged: false,
+        receivedIn: 0,
+        receivedOut: 0,
         received: 0,
         receivedNote: "",
         total: opening,
@@ -1192,6 +1218,8 @@
         openingAuto: item.openingAuto ?? 0,
         openingFinal: item.openingFinal ?? item.openingAuto ?? 0,
         openingChangeNote: item.openingChangeNote || "",
+        receivedIn: item.receivedIn ?? (toNumber(item.received) > 0 ? toNumber(item.received) : 0),
+        receivedOut: item.receivedOut ?? (toNumber(item.received) < 0 ? Math.abs(toNumber(item.received)) : 0),
         received: item.received ?? 0,
         receivedNote: item.receivedNote || "",
         remaining: item.remaining ?? "",
@@ -1245,6 +1273,8 @@
           openingAuto: item?.openingAuto ?? 0,
           openingFinal: item?.openingFinal ?? item?.openingAuto ?? 0,
           openingChangeNote: item?.openingChangeNote || "",
+          receivedIn: item?.receivedIn ?? (toNumber(item?.received) > 0 ? toNumber(item?.received) : 0),
+          receivedOut: item?.receivedOut ?? (toNumber(item?.received) < 0 ? Math.abs(toNumber(item?.received)) : 0),
           received: item?.received ?? 0,
           receivedNote: item?.receivedNote || "",
           remaining: item?.remaining ?? "",
@@ -1282,7 +1312,8 @@
         productNameAtShift: row.productNameAtShift,
         openingFinal: comparableValue("openingFinal", row.openingFinal),
         openingChangeNote: comparableValue("openingChangeNote", row.openingChangeNote),
-        received: comparableValue("received", row.received),
+        receivedIn: comparableValue("receivedIn", receivedInValue(row)),
+        receivedOut: comparableValue("receivedOut", receivedOutValue(row)),
         receivedNote: comparableValue("receivedNote", row.receivedNote),
         remaining: comparableValue("remaining", row.remaining),
         salePriceAtShift: comparableValue("salePriceAtShift", row.salePriceAtShift)
@@ -1299,8 +1330,9 @@
       const fields = [
         { key: "openingFinal", label: "Nyitó" },
         { key: "openingChangeNote", label: "Nyitó módosítás megjegyzése" },
-        { key: "received", label: "Vételezés" },
-        { key: "receivedNote", label: "Vételezés megjegyzés" },
+        { key: "receivedIn", label: "Bejövő áru" },
+        { key: "receivedOut", label: "Lejárat / kivétel" },
+        { key: "receivedNote", label: "Kivétel megjegyzés" },
         { key: "remaining", label: "Maradvány / záró" },
         { key: "salePriceAtShift", label: "Egységár" }
       ];
@@ -1595,7 +1627,7 @@
 
     function zeroConsumptionRemaining(row) {
       if (isCounterUnit(row)) return toNumber(row.openingFinal);
-      return toNumber(row.openingFinal) + toNumber(row.received);
+      return toNumber(row.openingFinal) + receivedNetValue(row);
     }
 
     function setRowZeroConsumption(row) {
@@ -1628,7 +1660,7 @@
 
       categoryTr.dataset.category = category;
       categoryTr.innerHTML = `
-        <td colspan="11">
+        <td colspan="12">
           <button class="category-toggle" data-category="${escapeHtml(category)}">${collapsed ? "▶" : "▼"}</button>
           <span class="category-title">${escapeHtml(category)}</span>
           <span class="category-total">Összesen: ${formatMoney(stats.total)}</span>
@@ -1655,7 +1687,7 @@
 
     function renderReceivedNoteCell(row) {
       if (receivedNeedsNote(row) || String(row.receivedNote || "").trim()) {
-        return `<input class="table-input note-input active-input received-note-input" data-field="receivedNote" value="${escapeHtml(row.receivedNote || "")}" placeholder="pl. Gyuri elvitte, lejárt">`;
+        return `<input class="table-input note-input active-input received-note-input" data-field="receivedNote" value="${escapeHtml(row.receivedNote || "")}" placeholder="pl. lejárt, törött, kivettük">`;
       }
 
       return `<span class="muted-cell">—</span>`;
@@ -1688,9 +1720,13 @@
         if (receivedNeedsNote(row)) tr.classList.add("negative-received-row");
         if (row.catalogPriceChangedInShift || row.standPriceChangedInShift) tr.classList.add("price-updated-row");
 
-        const receivedCell = counter
+        const receivedInCell = counter
           ? `<input class="table-input disabled-input" value="" disabled>`
-          : inputWithEdit(row, index, "received", row.received);
+          : inputWithEdit(row, index, "receivedIn", receivedInValue(row));
+
+        const receivedOutCell = counter
+          ? `<input class="table-input disabled-input" value="" disabled>`
+          : inputWithEdit(row, index, "receivedOut", receivedOutValue(row), "stock-out-input");
 
         tr.innerHTML = `
           <td>
@@ -1703,7 +1739,8 @@
           </td>
           <td>${escapeHtml(row.unitAtShift)}</td>
           <td>${inputWithEdit(row, index, "openingFinal", row.openingFinal)}</td>
-          <td>${receivedCell}</td>
+          <td>${receivedInCell}</td>
+          <td>${receivedOutCell}</td>
           <td class="received-note-cell">${renderReceivedNoteCell(row)}</td>
           <td class="calc-total">${counter ? "—" : formatNumber(c.total)}</td>
           <td>
@@ -1764,7 +1801,7 @@
         }
 
         if (receivedNeedsNote(row) && !String(row.receivedNote || "").trim()) {
-          return `Negatív vételezésnél kötelező megjegyzést írni: ${row.productNameAtShift}`;
+          return `Lejárat / kivétel esetén kötelező megjegyzést írni: ${row.productNameAtShift}`;
         }
 
         if (closing && !hasValue(row.remaining)) {
@@ -1789,8 +1826,10 @@
         openingFinal: toNumber(row.openingFinal),
         openingChangeNote: openingChanged(row) ? String(row.openingChangeNote || "").trim() : "",
         openingChanged: openingChanged(row),
-        received: isCounterUnit(row) ? 0 : toNumber(row.received),
-        receivedNote: receivedNeedsNote(row) ? String(row.receivedNote || "").trim() : "",
+        receivedIn: isCounterUnit(row) ? 0 : receivedInValue(row),
+        receivedOut: isCounterUnit(row) ? 0 : receivedOutValue(row),
+        received: isCounterUnit(row) ? 0 : receivedNetValue(row),
+        receivedNote: receivedNeedsNote(row) || String(row.receivedNote || "").trim() ? String(row.receivedNote || "").trim() : "",
         total: c.total,
         remaining: hasValue(row.remaining) ? toNumber(row.remaining) : "",
         consumption: c.consumption,
@@ -1908,7 +1947,9 @@
         .map(row => ({
           productId: row.productId,
           productName: row.productNameAtShift,
-          received: toNumber(row.received),
+          receivedIn: receivedInValue(row),
+          receivedOut: receivedOutValue(row),
+          received: -receivedOutValue(row),
           note: String(row.receivedNote || "").trim()
         }));
     }
@@ -3054,8 +3095,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         return;
       }
 
-      if (field === "received" && !can("canEditReceivedStock")) {
-        showMessage("Nincs jogosultságod a vételezés módosításához.", true);
+      if ((field === "receivedIn" || field === "receivedOut") && !can("canEditReceivedStock")) {
+        showMessage("Nincs jogosultságod a vételezés / kivétel módosításához.", true);
         return;
       }
 

@@ -851,3 +851,17 @@ button:disabled {
   background: #dbeafe;
   color: #1d4ed8;
 }
+
+
+.review-separator-row td {
+  background: #e5e7eb;
+  color: #111827;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.stock-out-input {
+  border-color: #f97316;
+}
