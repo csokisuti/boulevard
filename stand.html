@@ -491,7 +491,7 @@
     let moneyMovements = [];
     let openDebts = [];
     let collapsedCategories = {};
-    let closedFinanceEditAllowed = false;
+    let closedShiftEditAllowed = false;
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
@@ -584,16 +584,12 @@
     function canModifyCurrentShift() {
       if (viewOnlyFromUrl || !currentShift) return false;
       if (isOpenShift()) return isShiftOwnerOrAdmin();
-      if (isClosedShift()) return isAdmin() || can("canModifyClosedShift");
+      if (isClosedShift()) return closedShiftEditAllowed;
       return false;
     }
 
-    function canEditClosedOwnPreviousFinance() {
-      return !viewOnlyFromUrl && isClosedShift() && closedFinanceEditAllowed;
-    }
-
     function canBypassFinancePermissionsForClosedShift() {
-      return canEditClosedOwnPreviousFinance() && !isAdmin() && !can("canModifyClosedShift");
+      return isClosedShift() && closedShiftEditAllowed && !isAdmin();
     }
 
     function showShiftOwnerWarning() {
@@ -616,26 +612,27 @@
     function canEditFinanceCurrentShift() {
       if (viewOnlyFromUrl || !currentShift) return false;
       if (isOpenShift()) return isShiftOwnerOrAdmin();
-      if (isClosedShift()) return isAdmin() || can("canModifyClosedShift") || closedFinanceEditAllowed;
+      if (isClosedShift()) return closedShiftEditAllowed;
       return false;
     }
 
-    async function refreshClosedFinanceEditPermission() {
-      closedFinanceEditAllowed = false;
+    async function refreshClosedShiftEditPermission() {
+      closedShiftEditAllowed = false;
 
       if (!currentShift || !isClosedShift() || viewOnlyFromUrl) return;
-      if (isAdmin() || can("canModifyClosedShift")) {
-        closedFinanceEditAllowed = true;
-        return;
-      }
-
-      if (!currentShift.assignedUserId || currentShift.assignedUserId !== currentUser?.uid) return;
 
       const openShift = await getOpenShift();
       if (openShift) return;
 
       const lastClosedShift = await getLastClosedShift();
-      closedFinanceEditAllowed = !!lastClosedShift && lastClosedShift.id === currentShift.id;
+      if (!lastClosedShift || lastClosedShift.id !== currentShift.id) return;
+
+      if (isAdmin()) {
+        closedShiftEditAllowed = true;
+        return;
+      }
+
+      closedShiftEditAllowed = !!currentShift.assignedUserId && currentShift.assignedUserId === currentUser?.uid;
     }
 
     function isCounterUnit(row) {
@@ -2058,8 +2055,8 @@
     }
 
     async function saveDraft() {
-      if (isClosedShift() && !can("canModifyClosedShift")) {
-        showMessage("Nincs jogosultságod lezárt stand módosításához.", true);
+      if (isClosedShift() && !canModifyCurrentShift()) {
+        showMessage("Ezt a lezárt standot már nem lehet módosítani. Csak az utolsó lezárt stand szerkeszthető, ha nincs új nyitott stand.", true);
         return;
       }
 
@@ -3273,10 +3270,12 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
         const viewText = viewOnlyFromUrl ? " | Csak megtekintés" : "";
-        const financeEditText = !viewOnlyFromUrl && canEditFinanceCurrentShift() && !can("canModifyClosedShift") && !isAdmin() ? " | Pénzügy szerkeszthető, mert ez az utolsó saját standod" : "";
-        shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Lezárta: ${currentShift.closedByName || "-"} | Lezárva: ${formatDateTime(currentShift.closedAt)}${viewText}${financeEditText}`;
+        const editText = !viewOnlyFromUrl && canModifyCurrentShift()
+          ? (isAdmin() ? " | Szerkeszthető: ez az utolsó lezárt stand" : " | Szerkeszthető: ez az utolsó saját lezárt standod")
+          : "";
+        shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Lezárta: ${currentShift.closedByName || "-"} | Lezárva: ${formatDateTime(currentShift.closedAt)}${viewText}${editText}`;
         saveDraftBtn.textContent = "Mentés";
-        saveDraftBtn.style.display = canModifyCurrentShift() && can("canModifyClosedShift") ? "" : "none";
+        saveDraftBtn.style.display = canModifyCurrentShift() ? "" : "none";
         closeShiftBtn.style.display = "none";
         productSyncPanel.style.display = "none";
       } else {
@@ -3291,7 +3290,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
     function showNoOpenShift() {
       currentShift = null;
-      closedFinanceEditAllowed = false;
+      closedShiftEditAllowed = false;
       rows = [];
       originalRows = [];
       moneyMovements = [];
@@ -3335,7 +3334,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
           return;
         }
 
-        await refreshClosedFinanceEditPermission();
+        await refreshClosedShiftEditPermission();
         updateHeader();
 
         const itemMap = await loadShiftItems(currentShift.id);
@@ -3361,7 +3360,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       }
 
       currentShift = await getOpenShift();
-      closedFinanceEditAllowed = false;
+      closedShiftEditAllowed = false;
 
       if (!currentShift) {
         showNoOpenShift();

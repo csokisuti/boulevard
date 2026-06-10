@@ -178,9 +178,10 @@
           const dateText = shiftDateLabel(shift) || formatDateTime(shift.closedAt);
           const standOwner = shift.assignedUserName || shift.closedByName || shift.openedByName || "-";
           const modifiedText = shift.modifiedAfterClose ? `Igen, ${shift.lastModifiedAfterCloseByName || "-"}` : "Nem";
-          const canEditClosed = hasPermission(currentUserData, "canModifyClosedShift") || (!openShift && index === 0 && shift.assignedUserId === currentUser?.uid);
+          const isLatestClosed = index === 0;
+          const canEditClosed = !openShift && isLatestClosed && (currentUserData.role === "admin" || shift.assignedUserId === currentUser?.uid);
           const editButton = canEditClosed
-            ? `<a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}&mode=edit">${hasPermission(currentUserData, "canModifyClosedShift") ? "Szerkesztés" : "Pénzügy javítás"}</a>`
+            ? `<a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}&mode=edit">Szerkesztés</a>`
             : "";
 
           tr.innerHTML = `
