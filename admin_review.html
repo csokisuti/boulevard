@@ -89,7 +89,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, orderBy, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -208,6 +208,16 @@
     function showMessage(text, error = false) {
       message.textContent = text;
       message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    async function updateCatalogVersion() {
+      const version = Date.now();
+      await setDoc(doc(db, "settings", "catalog"), {
+        version,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
     }
 
     function isWorkerLog(log) {
@@ -540,6 +550,7 @@
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
       }, { merge: true });
+      await updateCatalogVersion();
       await addDoc(collection(db, "logs"), {
         action: "product_reviewed",
         details: { productId, productName: product ? product.name || "" : "", source: "admin_review" },
@@ -609,6 +620,7 @@
           updatedBy: currentUser.uid,
           updatedByName: currentUserData.name
         }, { merge: true });
+        await updateCatalogVersion();
       }
 
       await addDoc(collection(db, "logs"), {

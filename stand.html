@@ -878,6 +878,7 @@
       }
 
       localStorage.removeItem("boulevardProductsCacheV1");
+      localStorage.removeItem("boulevardProductsCacheV2");
       return String(version);
     }
 
@@ -960,7 +961,7 @@
 
       loadedProducts.sort(productCompareByOrder);
 
-      localStorage.setItem("boulevardProductsCacheV1", JSON.stringify({
+      localStorage.setItem("boulevardProductsCacheV2", JSON.stringify({
         version: currentCatalogVersion,
         products: loadedProducts
       }));
@@ -970,14 +971,14 @@
 
     async function loadProductsCached() {
       const version = await loadCatalogVersion();
-      const cacheRaw = localStorage.getItem("boulevardProductsCacheV1");
+      const cacheRaw = localStorage.getItem("boulevardProductsCacheV2");
 
       if (cacheRaw) {
         try {
           const cache = JSON.parse(cacheRaw);
           if (cache.version === version && Array.isArray(cache.products)) return cache.products;
         } catch (error) {
-          localStorage.removeItem("boulevardProductsCacheV1");
+          localStorage.removeItem("boulevardProductsCacheV2");
         }
       }
 
