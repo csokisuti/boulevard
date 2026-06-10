@@ -182,6 +182,25 @@
       return hasPermission(currentUserData, permission);
     }
 
+    function isAdmin() {
+      return currentUserData && currentUserData.role === "admin";
+    }
+
+    function isShiftOwnerOrAdmin() {
+      if (!currentShift) return true;
+      if (isAdmin()) return true;
+      if (!currentShift.assignedUserId) return true;
+      return currentShift.assignedUserId === currentUser?.uid;
+    }
+
+    function canModifyCurrentShift() {
+      return !!currentShift && isShiftOwnerOrAdmin();
+    }
+
+    function showShiftOwnerWarning() {
+      showMessage("Ez nem a te standod, ezért itt nem rögzíthetsz tartozást vagy befizetést. Admin módosíthatja, vagy az a dolgozó, akihez a stand tartozik.", true);
+    }
+
     function movementEffect(type, amount) {
       if (type === "income") return amount;
       if (type === "expense") return -amount;
@@ -192,6 +211,7 @@
 
     function canEditDebtToday(debt) {
       return !!currentShift &&
+        canModifyCurrentShift() &&
         can("canEditTodayDebt") &&
         debt &&
         debt.status !== "paid" &&
@@ -200,6 +220,7 @@
 
     function canDeleteDebtToday(debt) {
       return !!currentShift &&
+        canModifyCurrentShift() &&
         can("canDeleteTodayDebt") &&
         debt &&
         debt.status !== "paid" &&
@@ -363,7 +384,7 @@
       } else {
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
-          const canPay = !!currentShift && can("canPayDebt");
+          const canPay = !!currentShift && canModifyCurrentShift() && can("canPayDebt");
           const canEditToday = canEditDebtToday(debt);
           const canDeleteToday = canDeleteDebtToday(debt);
 
@@ -487,6 +508,11 @@
         return;
       }
 
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
+        return;
+      }
+
       const name = newDebtName.value.trim();
       const amount = toNumber(newDebtAmount.value);
       const note = newDebtNote.value.trim();
@@ -573,6 +599,11 @@
 
       if (!currentShift) {
         showMessage("Tartozást javítani csak nyitott stand mellett lehet.", true);
+        return;
+      }
+
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
         return;
       }
 
@@ -708,6 +739,11 @@
         return;
       }
 
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
+        return;
+      }
+
       const debt = debts.find(item => item.id === debtId);
 
       if (!debt) {
@@ -786,6 +822,11 @@ A kapcsolódó pénzmozgás is törlődik, a pénztár újraszámolódik.`);
 
       if (!currentShift) {
         showMessage("Befizetést csak nyitott standhoz lehet rögzíteni.", true);
+        return;
+      }
+
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
         return;
       }
 
@@ -939,8 +980,9 @@ A kapcsolódó pénzmozgás is törlődik, a pénztár újraszámolódik.`);
       currentShift = await getOpenShift();
 
       if (currentShift) {
-        shiftInfo.textContent = `Nyitott stand: ${currentShift.shiftLabel || ""}`;
-        newDebtFormBox.style.display = can("canCreateDebt") ? "" : "none";
+        const ownerWarning = isShiftOwnerOrAdmin() ? "" : " | Csak megtekintés: ez nem a te standod";
+        shiftInfo.textContent = `Nyitott stand: ${currentShift.shiftLabel || ""}${ownerWarning}`;
+        newDebtFormBox.style.display = canModifyCurrentShift() && can("canCreateDebt") ? "" : "none";
       } else {
         shiftInfo.textContent = "Nincs nyitott stand. Tartozást felírni vagy befizetést rögzíteni csak nyitott stand mellett lehet.";
         newDebtFormBox.style.display = "none";

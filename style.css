@@ -842,3 +842,12 @@ button:disabled {
 .category-order-chip {
   padding-right: 8px;
 }
+
+.price-updated-row {
+  background: #eff6ff;
+}
+
+.price-change-badge {
+  background: #dbeafe;
+  color: #1d4ed8;
+}

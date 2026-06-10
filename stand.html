@@ -545,6 +545,21 @@
       return hasPermission(currentUserData, permission);
     }
 
+    function isShiftOwnerOrAdmin() {
+      if (!currentShift) return true;
+      if (isAdmin()) return true;
+      if (!currentShift.assignedUserId) return true;
+      return currentShift.assignedUserId === currentUser?.uid;
+    }
+
+    function canModifyCurrentShift() {
+      return !!currentShift && isShiftOwnerOrAdmin();
+    }
+
+    function showShiftOwnerWarning() {
+      showMessage("Ez nem a te standod, ezért csak megtekinteni tudod. Módosítani admin tudja, vagy az a dolgozó, akihez a stand tartozik.", true);
+    }
+
     function showMessage(text, error = false) {
       message.textContent = text;
       message.style.color = error ? "#b91c1c" : "#047857";
@@ -656,6 +671,7 @@
 
     function canEditDebtToday(debt) {
       return isOpenShift() &&
+        canModifyCurrentShift() &&
         can("canEditTodayDebt") &&
         debt &&
         debt.status !== "paid" &&
@@ -664,6 +680,7 @@
 
     function canDeleteDebtToday(debt) {
       return isOpenShift() &&
+        canModifyCurrentShift() &&
         can("canDeleteTodayDebt") &&
         debt &&
         debt.status !== "paid" &&
@@ -1032,6 +1049,12 @@
         salesValue: 0,
         purchaseValue: 0,
         marginValue: 0,
+        catalogPriceChangedInShift: false,
+        catalogPriceChangeBefore: 0,
+        catalogPriceChangeAfter: 0,
+        standPriceChangedInShift: false,
+        standPriceChangeBefore: 0,
+        standPriceChangeAfter: 0,
         updatedAt: serverTimestamp()
       };
     }
@@ -1174,6 +1197,14 @@
         remaining: item.remaining ?? "",
         salePriceAtShift: item.salePriceAtShift ?? 0,
         purchasePriceAtShift: item.purchasePriceAtShift ?? 0,
+        catalogPriceChangedInShift: !!item.catalogPriceChangedInShift,
+        catalogPriceChangeBefore: item.catalogPriceChangeBefore ?? 0,
+        catalogPriceChangeAfter: item.catalogPriceChangeAfter ?? 0,
+        catalogPriceChangedByName: item.catalogPriceChangedByName || "",
+        standPriceChangedInShift: !!item.standPriceChangedInShift,
+        standPriceChangeBefore: item.standPriceChangeBefore ?? 0,
+        standPriceChangeAfter: item.standPriceChangeAfter ?? 0,
+        standPriceChangedByName: item.standPriceChangedByName || "",
         adminReviewNeeded: false,
         unlockedFields: {}
       };
@@ -1219,6 +1250,14 @@
           remaining: item?.remaining ?? "",
           salePriceAtShift: item?.salePriceAtShift ?? product.salePrice ?? 0,
           purchasePriceAtShift: item?.purchasePriceAtShift ?? product.purchasePrice ?? 0,
+          catalogPriceChangedInShift: !!item?.catalogPriceChangedInShift,
+          catalogPriceChangeBefore: item?.catalogPriceChangeBefore ?? 0,
+          catalogPriceChangeAfter: item?.catalogPriceChangeAfter ?? 0,
+          catalogPriceChangedByName: item?.catalogPriceChangedByName || "",
+          standPriceChangedInShift: !!item?.standPriceChangedInShift,
+          standPriceChangeBefore: item?.standPriceChangeBefore ?? 0,
+          standPriceChangeAfter: item?.standPriceChangeAfter ?? 0,
+          standPriceChangedByName: item?.standPriceChangedByName || "",
           adminReviewNeeded: product.adminReviewNeeded || false,
           unlockedFields: {}
         };
@@ -1514,11 +1553,12 @@
       renderRepiTable();
       renderAllMoneyMovements();
 
-      financeFormBox.style.display = isOpenShift() ? "" : "none";
-      addMoneyMovementBtn.style.display = can("canManageMoneyMovements") || can("canCreateDebt") || can("canPayDebt") ? "" : "none";
-      addCardPaymentBtn.style.display = can("canAddCardPayment") ? "" : "none";
-      addLottoTurnoverBtn.style.display = can("canAddLottoTurnover") ? "" : "none";
-      addRepiBtn.style.display = can("canAddRepi") ? "" : "none";
+      const canWorkHere = isOpenShift() && canModifyCurrentShift();
+      financeFormBox.style.display = canWorkHere ? "" : "none";
+      addMoneyMovementBtn.style.display = canWorkHere && (can("canManageMoneyMovements") || can("canCreateDebt") || can("canPayDebt")) ? "" : "none";
+      addCardPaymentBtn.style.display = canWorkHere && can("canAddCardPayment") ? "" : "none";
+      addLottoTurnoverBtn.style.display = canWorkHere && can("canAddLottoTurnover") ? "" : "none";
+      addRepiBtn.style.display = canWorkHere && can("canAddRepi") ? "" : "none";
     }
 
     function updateCategorySummaries() {
@@ -1541,6 +1581,7 @@
 
 
     function canUseZeroConsumptionShortcut() {
+      if (!canModifyCurrentShift()) return false;
       if (isOpenShift()) return can("canSaveShift");
       if (isClosedShift()) return can("canModifyClosedShift");
       return false;
@@ -1600,13 +1641,14 @@
     }
 
     function inputWithEdit(row, index, field, value, extraClass = "") {
-      const unlocked = isFieldUnlocked(row, field);
+      const canModify = canModifyCurrentShift();
+      const unlocked = canModify && isFieldUnlocked(row, field);
       const safeValue = escapeHtml(value);
 
       return `
         <div class="input-edit-wrap">
           <input class="table-input ${extraClass}" data-field="${field}" value="${safeValue}" ${unlocked ? "" : "disabled"}>
-          <button class="icon-edit-btn" data-action="unlock-field" data-index="${index}" data-field="${field}" title="Módosítás">✎</button>
+          ${canModify ? `<button class="icon-edit-btn" data-action="unlock-field" data-index="${index}" data-field="${field}" title="Módosítás">✎</button>` : ""}
         </div>
       `;
     }
@@ -1644,6 +1686,7 @@
 
         if (openingChanged(row)) tr.classList.add("review-row");
         if (receivedNeedsNote(row)) tr.classList.add("negative-received-row");
+        if (row.catalogPriceChangedInShift || row.standPriceChangedInShift) tr.classList.add("price-updated-row");
 
         const receivedCell = counter
           ? `<input class="table-input disabled-input" value="" disabled>`
@@ -1655,6 +1698,8 @@
             ${row.adminReviewNeeded ? `<span class="mini-badge">ellenőrizendő</span>` : ""}
             ${counter ? `<span class="mini-badge">számoló</span>` : ""}
             ${openingChanged(row) ? `<span class="mini-badge" title="${escapeHtml(row.openingChangeNote || "")}">nyitó mód.</span>` : ""}
+            ${row.catalogPriceChangedInShift ? `<span class="mini-badge price-change-badge" title="Listaár frissítve ebben a standban: ${escapeHtml(formatMoney(row.catalogPriceChangeBefore))} → ${escapeHtml(formatMoney(row.catalogPriceChangeAfter))}">listaár frissült</span>` : ""}
+            ${row.standPriceChangedInShift ? `<span class="mini-badge price-change-badge" title="Stand közbeni ár módosítva: ${escapeHtml(formatMoney(row.standPriceChangeBefore))} → ${escapeHtml(formatMoney(row.standPriceChangeAfter))}">stand ár mód.</span>` : ""}
           </td>
           <td>${escapeHtml(row.unitAtShift)}</td>
           <td>${inputWithEdit(row, index, "openingFinal", row.openingFinal)}</td>
@@ -1663,7 +1708,7 @@
           <td class="calc-total">${counter ? "—" : formatNumber(c.total)}</td>
           <td>
             <div class="remaining-cell-wrap">
-              <input class="table-input active-input remaining-input" data-field="remaining" value="${escapeHtml(row.remaining)}">
+              <input class="table-input active-input remaining-input" data-field="remaining" value="${escapeHtml(row.remaining)}" ${canModifyCurrentShift() ? "" : "disabled"}>
               ${canUseZeroConsumptionShortcut() ? `<button class="zero-consumption-btn" data-action="zero-row-consumption" data-index="${index}" title="Nincs változás / 0 fogyás">✓</button>` : ""}
             </div>
           </td>
@@ -1698,6 +1743,9 @@
 
       if (receivedNeedsNote(row)) tr.classList.add("negative-received-row");
       else tr.classList.remove("negative-received-row");
+
+      if (row.catalogPriceChangedInShift || row.standPriceChangedInShift) tr.classList.add("price-updated-row");
+      else tr.classList.remove("price-updated-row");
 
       updateTotalSales();
       updateCategorySummaries();
@@ -1752,10 +1800,58 @@
         salesValue: c.salesValue,
         purchaseValue: c.purchaseValue,
         marginValue: c.marginValue,
+        catalogPriceChangedInShift: !!row.catalogPriceChangedInShift,
+        catalogPriceChangeBefore: toNumber(row.catalogPriceChangeBefore),
+        catalogPriceChangeAfter: toNumber(row.catalogPriceChangeAfter),
+        catalogPriceChangedByName: row.catalogPriceChangedByName || "",
+        standPriceChangedInShift: !!row.standPriceChangedInShift,
+        standPriceChangeBefore: toNumber(row.standPriceChangeBefore),
+        standPriceChangeAfter: toNumber(row.standPriceChangeAfter),
+        standPriceChangedByName: row.standPriceChangedByName || "",
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
       };
+    }
+
+    function standPriceChanges() {
+      const beforeMap = new Map();
+      const changes = [];
+
+      originalRows.forEach(row => beforeMap.set(row.productId, row));
+
+      rows.forEach(row => {
+        const before = beforeMap.get(row.productId);
+        if (!before) return;
+
+        const beforePrice = toNumber(before.salePriceAtShift);
+        const afterPrice = toNumber(row.salePriceAtShift);
+
+        if (beforePrice !== afterPrice) {
+          changes.push({
+            productId: row.productId,
+            productName: row.productNameAtShift,
+            before: beforePrice,
+            after: afterPrice
+          });
+        }
+      });
+
+      return changes;
+    }
+
+    function applyStandPriceChangeFlags(priceChanges) {
+      const changeMap = new Map(priceChanges.map(change => [change.productId, change]));
+
+      rows.forEach(row => {
+        const change = changeMap.get(row.productId);
+        if (!change) return;
+
+        row.standPriceChangedInShift = true;
+        row.standPriceChangeBefore = change.before;
+        row.standPriceChangeAfter = change.after;
+        row.standPriceChangedByName = currentUserData.name || currentUser.email || "";
+      });
     }
 
     function negativeReceivedNotes() {
@@ -1804,6 +1900,11 @@
         showMessage("Nincs jogosultságod a stand mentéséhez.", true);
         return;
       }
+
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
+        return;
+      }
       const closed = isClosedShift();
       const error = validateRows(closed);
 
@@ -1813,6 +1914,9 @@
       }
 
       const changes = closed ? findChanges() : [];
+      const priceChanges = closed ? [] : standPriceChanges();
+
+      if (priceChanges.length) applyStandPriceChangeFlags(priceChanges);
 
       if (closed && !changes.length) {
         showMessage("Nem történt módosítás.");
@@ -1868,6 +1972,24 @@
         });
       }
 
+      if (!closed && priceChanges.length) {
+        const logRef = doc(collection(db, "logs"));
+        batch.set(logRef, {
+          action: "stand_price_changed",
+          details: {
+            shiftId: currentShift.id,
+            shiftLabel: currentShift.shiftLabel || "",
+            businessDate: currentShift.businessDate || "",
+            changes: priceChanges,
+            financials: financialDetailsForLog()
+          },
+          userId: currentUser.uid,
+          userName: currentUserData.name,
+          userRole: currentUserData.role,
+          createdAt: serverTimestamp()
+        });
+      }
+
       await batch.commit();
 
       currentShift = {
@@ -1887,6 +2009,11 @@
       }
       if (isClosedShift()) {
         showMessage("Ez a stand már lezárt. A módosítás mentéséhez használd a mentés gombot.", true);
+        return;
+      }
+
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
         return;
       }
 
@@ -2002,6 +2129,11 @@
     async function createSimpleMoneyMovement(type, amount, personName, note, movementDate) {
       if (!isOpenShift()) {
         showMessage("Pénzmozgást csak nyitott standhoz lehet rögzíteni.", true);
+        return false;
+      }
+
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
         return false;
       }
 
@@ -2373,6 +2505,11 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         return;
       }
 
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
+        return;
+      }
+
       const type = moneyType.value;
       const amount = toNumber(moneyAmount.value);
       const personName = moneyPerson.value.trim();
@@ -2645,6 +2782,11 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         return;
       }
 
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
+        return;
+      }
+
       const freshProducts = await loadProductsFresh();
       const itemMap = await loadShiftItems(currentShift.id);
       const batch = writeBatch(db);
@@ -2678,7 +2820,18 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         if (String(item.productNameAtShift || "") !== String(update.productNameAtShift || "")) productChanges.push({ field: "név", before: item.productNameAtShift || "", after: update.productNameAtShift || "" });
         if (String(item.categoryAtShift || "") !== String(update.categoryAtShift || "")) productChanges.push({ field: "kategória", before: item.categoryAtShift || "", after: update.categoryAtShift || "" });
         if (String(item.unitAtShift || "") !== String(update.unitAtShift || "")) productChanges.push({ field: "mértékegység", before: item.unitAtShift || "", after: update.unitAtShift || "" });
-        if (toNumber(item.salePriceAtShift) !== toNumber(update.salePriceAtShift)) productChanges.push({ field: "eladási ár", before: toNumber(item.salePriceAtShift), after: toNumber(update.salePriceAtShift) });
+
+        const salePriceChanged = toNumber(item.salePriceAtShift) !== toNumber(update.salePriceAtShift);
+
+        if (salePriceChanged) {
+          productChanges.push({ field: "eladási ár", before: toNumber(item.salePriceAtShift), after: toNumber(update.salePriceAtShift) });
+          update.catalogPriceChangedInShift = true;
+          update.catalogPriceChangeBefore = toNumber(item.salePriceAtShift);
+          update.catalogPriceChangeAfter = toNumber(update.salePriceAtShift);
+          update.catalogPriceChangedBy = currentUser.uid;
+          update.catalogPriceChangedByName = currentUserData.name;
+          update.catalogPriceChangedAt = serverTimestamp();
+        }
 
         if (productChanges.length) {
           changes.push({
@@ -2810,6 +2963,12 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       const row = rows[index];
 
       if (!row) return;
+
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
+        return;
+      }
+
       if (!row.unlockedFields) row.unlockedFields = {};
 
       if (field === "openingFinal" && !can("canEditOpeningStock")) {
@@ -2902,7 +3061,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       standTablePanel.style.display = "";
       standActions.style.display = "";
       financeDetails.style.display = "";
-      quickProductDetails.style.display = isOpenShift() && can("canCreateProductFromStand") ? "" : "none";
+      quickProductDetails.style.display = isOpenShift() && canModifyCurrentShift() && can("canCreateProductFromStand") ? "" : "none";
       quickPurchasePriceBox.style.display = can("canEditPurchasePrice") ? "" : "none";
       setDefaultFinanceDates();
 
@@ -2910,15 +3069,16 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         shiftTitle.textContent = "Lezárt stand";
         shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Lezárta: ${currentShift.closedByName || "-"} | Lezárva: ${formatDateTime(currentShift.closedAt)}`;
         saveDraftBtn.textContent = "Mentés";
-        saveDraftBtn.style.display = can("canModifyClosedShift") ? "" : "none";
+        saveDraftBtn.style.display = canModifyCurrentShift() && can("canModifyClosedShift") ? "" : "none";
         closeShiftBtn.style.display = "none";
         productSyncPanel.style.display = "none";
       } else {
         shiftTitle.textContent = "Aktuális stand";
-        shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Nyitotta: ${currentShift.openedByName || "-"}`;
+        const ownerWarning = isShiftOwnerOrAdmin() ? "" : " | Csak megtekintés: ez nem a te standod";
+        shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Nyitotta: ${currentShift.openedByName || "-"}${ownerWarning}`;
         saveDraftBtn.textContent = "Mentés";
-        saveDraftBtn.style.display = can("canSaveShift") ? "" : "none";
-        closeShiftBtn.style.display = can("canCloseShift") ? "" : "none";
+        saveDraftBtn.style.display = canModifyCurrentShift() && can("canSaveShift") ? "" : "none";
+        closeShiftBtn.style.display = canModifyCurrentShift() && can("canCloseShift") ? "" : "none";
       }
     }
 
