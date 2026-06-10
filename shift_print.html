@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boulevard - Stand nyomtatási kép</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="print-page-body">
+  <header class="topbar print-hide">
+    <div>
+      <h1>Stand nyomtatási kép</h1>
+      <p id="userInfo">Betöltés...</p>
+    </div>
+    <div class="button-row print-header-actions">
+      <button id="printBtn">Nyomtatás / mentés PDF-be</button>
+      <button id="backBtn" class="secondary-btn">Vissza</button>
+    </div>
+  </header>
+
+  <main class="print-sheet" id="printSheet">
+    <section class="print-title-block">
+      <div>
+        <h1 id="printTitle">Stand riport</h1>
+        <p id="printSubtitle">Betöltés...</p>
+      </div>
+      <div class="print-logo-box">Boulevard</div>
+    </section>
+
+    <section class="print-summary-grid">
+      <div><span>Pultforgalom</span><strong id="sumSales">0 Ft</strong></div>
+      <div><span>Beszerzési érték</span><strong id="sumPurchase">0 Ft</strong></div>
+      <div><span>Árrés</span><strong id="sumMargin">0 Ft</strong></div>
+      <div><span>Árrés %</span><strong id="sumMarginPercent">0%</strong></div>
+      <div><span>Bankkártya</span><strong id="sumCard">0 Ft</strong></div>
+      <div><span>Leadó</span><strong id="sumHandover">0 Ft</strong></div>
+    </section>
+
+    <section class="print-section">
+      <h2>Stand adatok</h2>
+      <div id="shiftMeta" class="print-meta-grid"></div>
+    </section>
+
+    <section class="print-section">
+      <h2>Tételek részletesen</h2>
+      <div class="print-table-wrapper">
+        <table class="print-table">
+          <thead>
+            <tr>
+              <th>Termék</th>
+              <th>Kat.</th>
+              <th>Egys.</th>
+              <th>Nyitó</th>
+              <th>Bejövő</th>
+              <th>Kivétel</th>
+              <th>Össz.</th>
+              <th>Maradvány</th>
+              <th>Fogyás</th>
+              <th>Egységár</th>
+              <th>Eladás</th>
+              <th>Beszerzés</th>
+              <th>Árrés</th>
+              <th>Megj.</th>
+            </tr>
+          </thead>
+          <tbody id="itemsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="print-section">
+      <h2>Pénzügyi részletek</h2>
+      <div class="print-table-wrapper">
+        <table class="print-table">
+          <thead>
+            <tr>
+              <th>Típus</th>
+              <th>Nap</th>
+              <th>Név / partner</th>
+              <th>Összeg</th>
+              <th>Hatás</th>
+              <th>Megjegyzés</th>
+              <th>Rögzítette</th>
+            </tr>
+          </thead>
+          <tbody id="moneyBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="print-section">
+      <h2>Összesítés</h2>
+      <div id="financeSummary" class="print-meta-grid"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { auth, db } from "./firebase.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { collection, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { hasPermission, roleLabel } from "./permissions.js";
+
+    const params = new URLSearchParams(window.location.search);
+    const shiftId = params.get("shiftId");
+
+    const userInfo = document.getElementById("userInfo");
+    const backBtn = document.getElementById("backBtn");
+    const printBtn = document.getElementById("printBtn");
+    const printTitle = document.getElementById("printTitle");
+    const printSubtitle = document.getElementById("printSubtitle");
+    const shiftMeta = document.getElementById("shiftMeta");
+    const itemsBody = document.getElementById("itemsBody");
+    const moneyBody = document.getElementById("moneyBody");
+    const financeSummary = document.getElementById("financeSummary");
+
+    const sumSales = document.getElementById("sumSales");
+    const sumPurchase = document.getElementById("sumPurchase");
+    const sumMargin = document.getElementById("sumMargin");
+    const sumMarginPercent = document.getElementById("sumMarginPercent");
+    const sumCard = document.getElementById("sumCard");
+    const sumHandover = document.getElementById("sumHandover");
+
+    backBtn.addEventListener("click", () => {
+      window.location.href = "dashboard.html";
+    });
+
+    printBtn.addEventListener("click", () => {
+      window.print();
+    });
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function toNumber(value) {
+      const n = Number(String(value ?? "0").replace(/,/g, "."));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function hasValue(value) {
+      return value !== "" && value !== null && value !== undefined;
+    }
+
+    function formatMoney(value) {
+      return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function formatNumber(value) {
+      const n = Number(value || 0);
+      if (Number.isInteger(n)) return String(n);
+      return String(Number(n.toFixed(3))).replace(".", ",");
+    }
+
+    function formatDateTime(value) {
+      if (!value) return "-";
+      const date = value.toDate ? value.toDate() : new Date(value);
+      return date.toLocaleString("hu-HU");
+    }
+
+    function formatBusinessDate(value) {
+      if (!value) return "-";
+      const parts = String(value).split("-");
+      if (parts.length !== 3) return value;
+      return `${parts[0]}.${parts[1]}.${parts[2]}.`;
+    }
+
+    function formatBusinessDateRange(start, end) {
+      if (!start && !end) return "-";
+      const safeStart = start || end;
+      const safeEnd = end || start;
+      if (!safeEnd || safeStart === safeEnd) return formatBusinessDate(safeStart);
+      return `${formatBusinessDate(safeStart)} - ${formatBusinessDate(safeEnd)}`;
+    }
+
+    function shiftDateLabel(shift) {
+      const start = shift.businessDateStart || shift.businessDate || "";
+      const end = shift.businessDateEnd || start;
+      return shift.businessDateLabel || formatBusinessDateRange(start, end);
+    }
+
+    function receivedInValue(item) {
+      if (hasValue(item.receivedIn)) return toNumber(item.receivedIn);
+      const received = toNumber(item.received);
+      return received > 0 ? received : 0;
+    }
+
+    function receivedOutValue(item) {
+      if (hasValue(item.receivedOut)) return toNumber(item.receivedOut);
+      const received = toNumber(item.received);
+      return received < 0 ? Math.abs(received) : 0;
+    }
+
+    function itemCalc(item) {
+      const opening = toNumber(item.openingFinal);
+      const receivedIn = receivedInValue(item);
+      const receivedOut = receivedOutValue(item);
+      const total = hasValue(item.total) ? toNumber(item.total) : opening + receivedIn - receivedOut;
+      const remaining = hasValue(item.remaining) ? toNumber(item.remaining) : 0;
+      const consumption = hasValue(item.consumption) ? toNumber(item.consumption) : total - remaining;
+      const salePrice = toNumber(item.salePriceAtShift);
+      const purchasePrice = toNumber(item.purchasePriceAtShift);
+      const salesValue = hasValue(item.salesValue) ? toNumber(item.salesValue) : consumption * salePrice;
+      const purchaseValue = hasValue(item.purchaseValue) ? toNumber(item.purchaseValue) : consumption * purchasePrice;
+      const marginValue = hasValue(item.marginValue) ? toNumber(item.marginValue) : salesValue - purchaseValue;
+
+      return { opening, receivedIn, receivedOut, total, remaining, consumption, salePrice, purchasePrice, salesValue, purchaseValue, marginValue };
+    }
+
+    function movementLabel(type) {
+      if (type === "product_sales") return "Pultforgalom";
+      if (type === "income") return "Egyéb bevétel";
+      if (type === "expense") return "Egyéb kiadás";
+      if (type === "debt_create") return "Új tartozás";
+      if (type === "debt_payment") return "Tartozás befizetés";
+      if (type === "card_payment") return "Bankkártya";
+      if (type === "lotto_turnover") return "Lottó forgalom";
+      if (type === "repi") return "Repi";
+      if (type === "previous_handover") return "Előző stand leadó";
+      return type || "-";
+    }
+
+    function movementEffect(type, amount) {
+      if (type === "product_sales") return amount;
+      if (type === "income") return amount;
+      if (type === "expense") return -amount;
+      if (type === "debt_create") return -amount;
+      if (type === "debt_payment") return amount;
+      if (type === "card_payment") return -amount;
+      if (type === "lotto_turnover") return amount;
+      if (type === "repi") return -amount;
+      if (type === "previous_handover") return amount;
+      return 0;
+    }
+
+    function metaLine(label, value) {
+      return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+    }
+
+    function sortItems(items) {
+      return items.sort((a, b) => {
+        const catOrder = toNumber(a.categorySortOrderAtShift) - toNumber(b.categorySortOrderAtShift);
+        if (catOrder !== 0) return catOrder;
+        const cat = String(a.categoryAtShift || "").localeCompare(String(b.categoryAtShift || ""), "hu", { sensitivity: "base" });
+        if (cat !== 0) return cat;
+        const order = toNumber(a.sortOrderAtShift) - toNumber(b.sortOrderAtShift);
+        if (order !== 0) return order;
+        return String(a.productNameAtShift || "").localeCompare(String(b.productNameAtShift || ""), "hu", { sensitivity: "base" });
+      });
+    }
+
+    async function loadPrintPage(userData) {
+      if (!shiftId) {
+        printSubtitle.textContent = "Hiányzó stand azonosító.";
+        return;
+      }
+
+      if (!hasPermission(userData, "canViewClosedShifts") && !hasPermission(userData, "canViewReports")) {
+        printSubtitle.textContent = "Nincs jogosultságod a nyomtatási képhez.";
+        return;
+      }
+
+      const shiftSnap = await getDoc(doc(db, "shifts", shiftId));
+      if (!shiftSnap.exists()) {
+        printSubtitle.textContent = "Nem található ez a stand.";
+        return;
+      }
+
+      const shift = { id: shiftSnap.id, ...shiftSnap.data() };
+
+      const itemSnap = await getDocs(collection(db, "shifts", shift.id, "items"));
+      const items = [];
+      itemSnap.forEach(item => items.push({ id: item.id, ...item.data() }));
+      sortItems(items);
+
+      const moneySnap = await getDocs(collection(db, "shifts", shift.id, "moneyMovements"));
+      const movements = [];
+      moneySnap.forEach(item => movements.push({ id: item.id, ...item.data() }));
+      movements.sort((a, b) => {
+        const at = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+        const bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+        return at - bt;
+      });
+
+      const totalSales = items.reduce((sum, item) => sum + itemCalc(item).salesValue, 0);
+      const totalPurchase = items.reduce((sum, item) => sum + itemCalc(item).purchaseValue, 0);
+      const totalMargin = totalSales - totalPurchase;
+      const marginPercent = totalSales ? (totalMargin / totalSales) * 100 : 0;
+
+      sumSales.textContent = formatMoney(totalSales);
+      sumPurchase.textContent = formatMoney(totalPurchase);
+      sumMargin.textContent = formatMoney(totalMargin);
+      sumMarginPercent.textContent = `${formatNumber(marginPercent)}%`;
+      sumCard.textContent = formatMoney(shift.totalCardPayment || 0);
+      sumHandover.textContent = formatMoney(shift.totalCashExpected || shift.handoverAmount || 0);
+
+      printTitle.textContent = `Stand riport - ${shiftDateLabel(shift)}`;
+      printSubtitle.textContent = `${shift.assignedUserName || "-"} | lezárva: ${formatDateTime(shift.closedAt)}`;
+
+      shiftMeta.innerHTML = [
+        metaLine("Dátum", shiftDateLabel(shift)),
+        metaLine("Stand", shift.assignedUserName || "-"),
+        metaLine("Nyitotta", shift.openedByName || "-"),
+        metaLine("Lezárta", shift.closedByName || "-"),
+        metaLine("Nyitás ideje", formatDateTime(shift.openedAt)),
+        metaLine("Zárás ideje", formatDateTime(shift.closedAt)),
+        metaLine("Utólag módosítva", shift.modifiedAfterClose ? `igen, ${shift.lastModifiedAfterCloseByName || "-"}` : "nem"),
+        metaLine("Dokumentum ID", shift.id)
+      ].join("");
+
+      itemsBody.innerHTML = "";
+      if (!items.length) {
+        itemsBody.innerHTML = `<tr><td colspan="14">Nincs tétel.</td></tr>`;
+      } else {
+        items.forEach(item => {
+          const c = itemCalc(item);
+          const tr = document.createElement("tr");
+          const note = item.receivedNote || item.openingChangeNote || "";
+          tr.innerHTML = `
+            <td>${escapeHtml(item.productNameAtShift || "-")}</td>
+            <td>${escapeHtml(item.categoryAtShift || "-")}</td>
+            <td>${escapeHtml(item.unitAtShift || "-")}</td>
+            <td>${formatNumber(item.openingFinal ?? item.openingAuto ?? 0)}</td>
+            <td>${formatNumber(c.receivedIn)}</td>
+            <td>${formatNumber(c.receivedOut)}</td>
+            <td>${formatNumber(c.total)}</td>
+            <td>${formatNumber(c.remaining)}</td>
+            <td>${formatNumber(c.consumption)}</td>
+            <td>${formatMoney(c.salePrice)}</td>
+            <td>${formatMoney(c.salesValue)}</td>
+            <td>${formatMoney(c.purchaseValue)}</td>
+            <td>${formatMoney(c.marginValue)}</td>
+            <td>${escapeHtml(note)}</td>
+          `;
+          itemsBody.appendChild(tr);
+        });
+      }
+
+      moneyBody.innerHTML = "";
+      if (!movements.length) {
+        moneyBody.innerHTML = `<tr><td colspan="7">Nincs külön pénzmozgás.</td></tr>`;
+      } else {
+        movements.forEach(item => {
+          const amount = toNumber(item.amount);
+          const effect = movementEffect(item.type, amount);
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHtml(movementLabel(item.type))}</td>
+            <td>${escapeHtml(item.movementDate ? formatBusinessDate(item.movementDate) : "-")}</td>
+            <td>${escapeHtml(item.personName || "-")}</td>
+            <td>${formatMoney(amount)}</td>
+            <td>${formatMoney(effect)}</td>
+            <td>${escapeHtml(item.note || "")}</td>
+            <td>${escapeHtml(item.createdByName || "-")}</td>
+          `;
+          moneyBody.appendChild(tr);
+        });
+      }
+
+      financeSummary.innerHTML = [
+        metaLine("Előző stand leadó", formatMoney(shift.totalPreviousHandover || 0)),
+        metaLine("Pultforgalom", formatMoney(totalSales)),
+        metaLine("Bankkártya", formatMoney(shift.totalCardPayment || 0)),
+        metaLine("Lottó forgalom", formatMoney(shift.totalLottoTurnover || 0)),
+        metaLine("Repi", formatMoney(shift.totalRepi || 0)),
+        metaLine("Egyéb bevétel", formatMoney(shift.totalMoneyIncome || 0)),
+        metaLine("Egyéb kiadás", formatMoney(shift.totalMoneyExpense || 0)),
+        metaLine("Új tartozás", formatMoney(shift.totalDebtCreated || 0)),
+        metaLine("Tartozás befizetés", formatMoney(shift.totalDebtPaid || 0)),
+        metaLine("Számolt leadó", formatMoney(shift.totalCashExpected || shift.handoverAmount || 0))
+      ].join("");
+    }
+
+    onAuthStateChanged(auth, async user => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+
+      const userSnap = await getDoc(doc(db, "users", user.uid));
+      if (!userSnap.exists()) {
+        userInfo.textContent = "Nincs felhasználói adat.";
+        return;
+      }
+
+      const userData = userSnap.data();
+      if (!userData.active) {
+        userInfo.textContent = "Ez a felhasználó inaktív.";
+        return;
+      }
+
+      userInfo.textContent = `${userData.name || user.email} - ${roleLabel(userData.role)}`;
+
+      try {
+        await loadPrintPage(userData);
+      } catch (error) {
+        console.error(error);
+        printSubtitle.textContent = "Hiba történt a nyomtatási kép betöltésekor.";
+      }
+    });
+  </script>
+</body>
+</html>

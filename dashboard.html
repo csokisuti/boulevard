@@ -31,7 +31,7 @@
       </div>
 
       <div class="table-wrapper">
-        <table class="data-table">
+        <table class="data-table dashboard-closed-table">
           <thead>
             <tr>
               <th>Dátum</th>
@@ -52,7 +52,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -63,6 +63,7 @@
     const refreshClosedShiftsBtn = document.getElementById("refreshClosedShiftsBtn");
 
     let currentUserData = null;
+    let openShift = null;
 
     logoutBtn.addEventListener("click", async () => {
       await signOut(auth);
@@ -73,11 +74,24 @@
       await loadClosedShifts();
     });
 
-    function addMenuItem(title, text, href) {
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function addMenuItem(title, text, href, options = {}) {
       const a = document.createElement("a");
-      a.className = "menu-card";
+      a.className = `menu-card ${options.className || ""}`.trim();
       a.href = href;
-      a.innerHTML = `<strong>${title}</strong><span>${text}</span>`;
+      a.innerHTML = `
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(text)}</span>
+        ${options.badge ? `<em class="menu-card-badge">${escapeHtml(options.badge)}</em>` : ""}
+      `;
       menu.appendChild(a);
     }
 
@@ -98,6 +112,36 @@
       return `${parts[0]}.${parts[1]}.${parts[2]}.`;
     }
 
+    function shiftStartDateValue(shift) {
+      return shift?.businessDateStart || shift?.businessDate || "";
+    }
+
+    function shiftEndDateValue(shift) {
+      return shift?.businessDateEnd || shiftStartDateValue(shift);
+    }
+
+    function formatBusinessDateRange(start, end) {
+      if (!start && !end) return "-";
+      const safeStart = start || end;
+      const safeEnd = end || start;
+      if (!safeEnd || safeStart === safeEnd) return formatBusinessDate(safeStart);
+      return `${formatBusinessDate(safeStart)} - ${formatBusinessDate(safeEnd)}`;
+    }
+
+    function shiftDateLabel(shift) {
+      return shift?.businessDateLabel || formatBusinessDateRange(shiftStartDateValue(shift), shiftEndDateValue(shift));
+    }
+
+    async function loadOpenShift() {
+      openShift = null;
+      const q = query(collection(db, "shifts"), where("status", "==", "open"), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const item = snap.docs[0];
+        openShift = { id: item.id, ...item.data() };
+      }
+    }
+
     async function loadClosedShifts() {
       if (!hasPermission(currentUserData, "canViewClosedShifts")) {
         closedShiftsMessage.textContent = "Nincs jogosultság a lezárt standok listájához.";
@@ -115,13 +159,7 @@
 
         snap.forEach(item => {
           const data = item.data();
-
-          if (data.status === "closed") {
-            shifts.push({
-              id: item.id,
-              ...data
-            });
-          }
+          if (data.status === "closed") shifts.push({ id: item.id, ...data });
         });
 
         closedShiftsBody.innerHTML = "";
@@ -136,22 +174,26 @@
 
         shifts.forEach(shift => {
           const tr = document.createElement("tr");
-          const dateText = shift.businessDate ? formatBusinessDate(shift.businessDate) : formatDateTime(shift.closedAt);
+          const dateText = shiftDateLabel(shift) || formatDateTime(shift.closedAt);
           const standOwner = shift.assignedUserName || shift.closedByName || shift.openedByName || "-";
           const modifiedText = shift.modifiedAfterClose ? `Igen, ${shift.lastModifiedAfterCloseByName || "-"}` : "Nem";
+          const editButton = hasPermission(currentUserData, "canModifyClosedShift")
+            ? `<a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}&mode=edit">Szerkesztés</a>`
+            : "";
 
           tr.innerHTML = `
-            <td>${dateText}</td>
-            <td>${standOwner}</td>
-            <td>${shift.closedByName || "-"}</td>
+            <td>${escapeHtml(dateText)}</td>
+            <td>${escapeHtml(standOwner)}</td>
+            <td>${escapeHtml(shift.closedByName || "-")}</td>
             <td>${formatMoney(shift.totalSalesValue)}</td>
             <td>${formatMoney(shift.totalCashExpected || shift.totalSalesValue)}</td>
-            <td>${modifiedText}</td>
-            <td>
-              <a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}">Megnyitás</a>
+            <td>${escapeHtml(modifiedText)}</td>
+            <td class="dashboard-action-cell">
+              <a class="small-link-btn secondary-inline-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}&mode=view">Megnyitás</a>
+              ${editButton}
+              <a class="small-link-btn print-link-btn" href="shift_print.html?shiftId=${encodeURIComponent(shift.id)}" target="_blank">PDF kép</a>
             </td>
           `;
-
           closedShiftsBody.appendChild(tr);
         });
       } catch (error) {
@@ -165,7 +207,16 @@
       menu.innerHTML = "";
 
       if (hasPermission(userData, "canViewStand")) {
-        addMenuItem("Standolás", "Aktuális stand vagy új stand nyitása", "stand.html");
+        if (openShift) {
+          addMenuItem(
+            "Standolás",
+            `${shiftDateLabel(openShift)} | ${openShift.assignedUserName || "nyitott stand"}`,
+            "stand.html",
+            { className: "menu-card-open-shift", badge: "NYITOTT STAND" }
+          );
+        } else {
+          addMenuItem("Standolás", "Nincs nyitott stand, új stand nyitható", "stand.html");
+        }
       }
 
       if (hasPermission(userData, "canViewDebts")) {
@@ -217,6 +268,8 @@
       }
 
       userInfo.textContent = `${currentUserData.name} - ${roleLabel(currentUserData.role)}`;
+
+      await loadOpenShift();
       renderMenu(currentUserData);
       await loadClosedShifts();
     });

@@ -22,8 +22,13 @@
 
       <div class="form-grid">
         <div>
-          <label for="shiftDate">Dátum</label>
+          <label for="shiftDate">Kezdő nap</label>
           <input id="shiftDate" type="date">
+        </div>
+
+        <div>
+          <label for="shiftDateEnd">Záró nap</label>
+          <input id="shiftDateEnd" type="date">
         </div>
 
         <div>
@@ -418,6 +423,7 @@
     const standTablePanel = document.getElementById("standTablePanel");
     const standActions = document.getElementById("standActions");
     const shiftDate = document.getElementById("shiftDate");
+    const shiftDateEnd = document.getElementById("shiftDateEnd");
     const assignedUserSelect = document.getElementById("assignedUserSelect");
     const openShiftBtn = document.getElementById("openShiftBtn");
     const productSyncPanel = document.getElementById("productSyncPanel");
@@ -471,6 +477,7 @@
 
     const params = new URLSearchParams(window.location.search);
     const shiftIdFromUrl = params.get("shiftId");
+    const viewOnlyFromUrl = params.get("mode") === "view" || params.get("view") === "1";
 
     let currentUser = null;
     let currentUserData = null;
@@ -529,6 +536,26 @@
       return `${parts[0]}.${parts[1]}.${parts[2]}.`;
     }
 
+    function shiftStartDateValue(shift) {
+      return shift?.businessDateStart || shift?.businessDate || "";
+    }
+
+    function shiftEndDateValue(shift) {
+      return shift?.businessDateEnd || shiftStartDateValue(shift);
+    }
+
+    function formatBusinessDateRange(start, end) {
+      if (!start && !end) return "-";
+      const safeStart = start || end;
+      const safeEnd = end || start;
+      if (!safeEnd || safeStart === safeEnd) return formatBusinessDate(safeStart);
+      return `${formatBusinessDate(safeStart)} - ${formatBusinessDate(safeEnd)}`;
+    }
+
+    function shiftDateLabel(shift) {
+      return shift?.businessDateLabel || formatBusinessDateRange(shiftStartDateValue(shift), shiftEndDateValue(shift));
+    }
+
     function escapeHtml(value) {
       return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -554,6 +581,7 @@
     }
 
     function canModifyCurrentShift() {
+      if (viewOnlyFromUrl) return false;
       return !!currentShift && isShiftOwnerOrAdmin();
     }
 
@@ -1098,11 +1126,17 @@
         return;
       }
       const selectedDate = shiftDate.value;
+      const selectedEndDate = shiftDateEnd.value || selectedDate;
       const assignedUserId = assignedUserSelect.value;
       const assignedUser = users.find(user => user.id === assignedUserId);
 
       if (!selectedDate) {
-        showMessage("A dátum kötelező.", true);
+        showMessage("A kezdő nap kötelező.", true);
+        return;
+      }
+
+      if (selectedEndDate < selectedDate) {
+        showMessage("A záró nap nem lehet korábbi, mint a kezdő nap.", true);
         return;
       }
 
@@ -1130,12 +1164,16 @@
       const previousHandover = previousHandoverFromShift(previousShift);
       const shiftRef = doc(collection(db, "shifts"));
       const batch = writeBatch(db);
-      const shiftLabel = `${formatBusinessDate(selectedDate)} - ${assignedUser.name || assignedUser.email || "Stand"}`;
+      const businessDateLabel = formatBusinessDateRange(selectedDate, selectedEndDate);
+      const shiftLabel = `${businessDateLabel} - ${assignedUser.name || assignedUser.email || "Stand"}`;
 
       batch.set(shiftRef, {
         status: "open",
         shiftLabel,
         businessDate: selectedDate,
+        businessDateStart: selectedDate,
+        businessDateEnd: selectedEndDate,
+        businessDateLabel,
         assignedUserId: assignedUser.id,
         assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
         catalogVersionAtOpen: currentCatalogVersion,
@@ -1192,6 +1230,9 @@
           shiftId: shiftRef.id,
           shiftLabel,
           businessDate: selectedDate,
+          businessDateStart: selectedDate,
+          businessDateEnd: selectedEndDate,
+          businessDateLabel,
           assignedUserId: assignedUser.id,
           assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
           previousShiftId: previousShift ? previousShift.id : "",
@@ -1687,7 +1728,7 @@
 
     function renderReceivedNoteCell(row) {
       if (receivedNeedsNote(row) || String(row.receivedNote || "").trim()) {
-        return `<input class="table-input note-input active-input received-note-input" data-field="receivedNote" value="${escapeHtml(row.receivedNote || "")}" placeholder="pl. lejárt, törött, kivettük">`;
+        return `<input class="table-input note-input active-input received-note-input" data-field="receivedNote" value="${escapeHtml(row.receivedNote || "")}" placeholder="pl. lejárt, törött, kivettük" ${canModifyCurrentShift() ? "" : "disabled"}>`;
       }
 
       return `<span class="muted-cell">—</span>`;
@@ -3156,6 +3197,11 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
     saveDraftBtn.addEventListener("click", saveDraft);
     closeShiftBtn.addEventListener("click", closeShift);
     searchInput.addEventListener("input", renderRows);
+    shiftDate.addEventListener("change", () => {
+      if (!shiftDateEnd.value || shiftDateEnd.value < shiftDate.value) {
+        shiftDateEnd.value = shiftDate.value;
+      }
+    });
     openShiftBtn.addEventListener("click", openNewShift);
     quickAddProductBtn.addEventListener("click", quickAddProduct);
     applyProductUpdatesBtn.addEventListener("click", applyProductUpdatesToOpenShift);
@@ -3165,7 +3211,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
     addRepiBtn.addEventListener("click", addRepi);
 
     function setDefaultFinanceDates() {
-      const value = currentShift?.businessDate || getTodayInputDate();
+      const value = shiftStartDateValue(currentShift) || getTodayInputDate();
       if (!cardDate.value) cardDate.value = value;
       if (!lottoDate.value) lottoDate.value = value;
     }
@@ -3174,7 +3220,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       if (!currentShift) return;
 
       const standOwner = currentShift.assignedUserName || "-";
-      const businessDate = currentShift.businessDate ? formatBusinessDate(currentShift.businessDate) : "-";
+      const businessDate = shiftDateLabel(currentShift);
 
       openShiftPanel.style.display = "none";
       standTablePanel.style.display = "";
@@ -3182,11 +3228,13 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       financeDetails.style.display = "";
       quickProductDetails.style.display = isOpenShift() && canModifyCurrentShift() && can("canCreateProductFromStand") ? "" : "none";
       quickPurchasePriceBox.style.display = can("canEditPurchasePrice") ? "" : "none";
+      financeFormBox.style.display = canModifyCurrentShift() ? "" : "none";
       setDefaultFinanceDates();
 
       if (isClosedShift()) {
         shiftTitle.textContent = "Lezárt stand";
-        shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Lezárta: ${currentShift.closedByName || "-"} | Lezárva: ${formatDateTime(currentShift.closedAt)}`;
+        const viewText = viewOnlyFromUrl ? " | Csak megtekintés" : "";
+        shiftInfo.textContent = `${businessDate} | Stand: ${standOwner} | Lezárta: ${currentShift.closedByName || "-"} | Lezárva: ${formatDateTime(currentShift.closedAt)}${viewText}`;
         saveDraftBtn.textContent = "Mentés";
         saveDraftBtn.style.display = canModifyCurrentShift() && can("canModifyClosedShift") ? "" : "none";
         closeShiftBtn.style.display = "none";
@@ -3219,6 +3267,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       productSyncPanel.style.display = "none";
       standBody.innerHTML = "";
       shiftDate.value = getTodayInputDate();
+      shiftDateEnd.value = getTodayInputDate();
       cardDate.value = getTodayInputDate();
       lottoDate.value = getTodayInputDate();
       renderFinance();
