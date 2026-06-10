@@ -1854,6 +1854,54 @@
       });
     }
 
+    async function syncStandPriceChangesToProductCatalog(batch, priceChanges, source) {
+      if (!priceChanges.length) return;
+
+      await updateCatalogVersion(batch);
+
+      const reviewedByDefault = can("canReviewProducts");
+
+      priceChanges.forEach(change => {
+        const row = rows.find(item => item.productId === change.productId);
+        const productRef = doc(db, "products", change.productId);
+        const priceChangeRef = doc(collection(db, "priceChanges"));
+
+        batch.set(productRef, {
+          salePrice: toNumber(change.after),
+          adminReviewNeeded: reviewedByDefault ? false : true,
+          lastPriceChangedAt: serverTimestamp(),
+          lastPriceChangedBy: currentUser.uid,
+          lastPriceChangedByName: currentUserData.name,
+          lastPriceChangeSource: source,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        }, { merge: true });
+
+        batch.set(priceChangeRef, {
+          productId: change.productId,
+          productName: change.productName || row?.productNameAtShift || "",
+          oldSalePrice: toNumber(change.before),
+          newSalePrice: toNumber(change.after),
+          oldPurchasePrice: row ? toNumber(row.purchasePriceAtShift) : 0,
+          newPurchasePrice: row ? toNumber(row.purchasePriceAtShift) : 0,
+          source,
+          sourceLabel: source === "stand_close" ? "Stand lezárás közbeni ármódosítás" : "Stand közbeni ármódosítás",
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          businessDate: currentShift.businessDate || "",
+          changedAt: serverTimestamp(),
+          changedBy: currentUser.uid,
+          changedByName: currentUserData.name || currentUser.email || "",
+          changedByRole: currentUserData.role || "",
+          reviewed: reviewedByDefault,
+          reviewedAt: reviewedByDefault ? serverTimestamp() : null,
+          reviewedBy: reviewedByDefault ? currentUser.uid : "",
+          reviewedByName: reviewedByDefault ? currentUserData.name : ""
+        });
+      });
+    }
+
     function negativeReceivedNotes() {
       return rows
         .filter(row => receivedNeedsNote(row))
@@ -1954,6 +2002,10 @@
       batch.set(doc(db, "shifts", currentShift.id), shiftUpdate, { merge: true });
       await updateShiftFinancialTotals(batch);
 
+      if (!closed && priceChanges.length) {
+        await syncStandPriceChangesToProductCatalog(batch, priceChanges, "stand");
+      }
+
       if (closed) {
         const logRef = doc(collection(db, "logs"));
         batch.set(logRef, {
@@ -1999,7 +2051,7 @@
       };
 
       setOriginalRows();
-      showMessage(closed ? "Lezárt stand módosítása mentve és naplózva." : "Mentve.");
+      showMessage(priceChanges.length ? "Mentve. Az ármódosítás a terméklistába és az ártörténetbe is bekerült." : (closed ? "Lezárt stand módosítása mentve és naplózva." : "Mentve."));
     }
 
     async function closeShift() {
@@ -2027,6 +2079,9 @@
       const confirmClose = confirm("Biztosan lezárod a standot? A leadó automatikusan átmegy a következő standba.");
 
       if (!confirmClose) return;
+
+      const priceChanges = standPriceChanges();
+      if (priceChanges.length) applyStandPriceChangeFlags(priceChanges);
 
       const totalSalesValue = rows.reduce((sum, row) => sum + calc(row).salesValue, 0);
       const totalPurchaseValue = rows.reduce((sum, row) => sum + calc(row).purchaseValue, 0);
@@ -2083,6 +2138,26 @@
           });
         }
       });
+
+      if (priceChanges.length) {
+        await syncStandPriceChangesToProductCatalog(batch, priceChanges, "stand_close");
+
+        const priceLogRef = doc(collection(db, "logs"));
+        batch.set(priceLogRef, {
+          action: "stand_price_changed",
+          details: {
+            shiftId: currentShift.id,
+            shiftLabel: currentShift.shiftLabel || "",
+            businessDate: currentShift.businessDate || "",
+            changes: priceChanges,
+            financials
+          },
+          userId: currentUser.uid,
+          userName: currentUserData.name,
+          userRole: currentUserData.role,
+          createdAt: serverTimestamp()
+        });
+      }
 
       const closeLogRef = doc(collection(db, "logs"));
       batch.set(closeLogRef, {
@@ -2803,12 +2878,15 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
           return;
         }
 
+        const keepStandPrice = !!item.standPriceChangedInShift && hasValue(item.salePriceAtShift);
+        const catalogSalePrice = product.salePrice ?? item.salePriceAtShift ?? 0;
+
         const update = {
           productNameAtShift: product.name || item.productNameAtShift || "",
           unitAtShift: product.unit || item.unitAtShift || "db",
           categoryAtShift: product.category || item.categoryAtShift || "",
           sortOrderAtShift: product.sortOrder || item.sortOrderAtShift || 0,
-          salePriceAtShift: product.salePrice ?? item.salePriceAtShift ?? 0,
+          salePriceAtShift: keepStandPrice ? item.salePriceAtShift : catalogSalePrice,
           purchasePriceAtShift: product.purchasePrice ?? item.purchasePriceAtShift ?? 0,
           updatedAt: serverTimestamp(),
           updatedBy: currentUser.uid,

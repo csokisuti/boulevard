@@ -123,6 +123,7 @@
     let currentUserData = null;
     let reviewProducts = [];
     let logs = [];
+    let priceChanges = [];
 
     const actionLabels = {
       closed_shift_modified: "Lezárt stand módosítva",
@@ -150,12 +151,18 @@
       if (button.dataset.action === "review-product") await markProductReviewed(button.dataset.id);
     });
 
-    [closedShiftLogsBody, openingLogsBody, workerProductLogsBody, priceChangeLogsBody, debtDeleteLogsBody, negativeReceivedLogsBody].forEach(target => {
+    [closedShiftLogsBody, openingLogsBody, workerProductLogsBody, debtDeleteLogsBody, negativeReceivedLogsBody].forEach(target => {
       target.addEventListener("click", async event => {
         const button = event.target.closest("button");
         if (!button) return;
         if (button.dataset.action === "review-log") await markLogReviewed(button.dataset.id);
       });
+    });
+
+    priceChangeLogsBody.addEventListener("click", async event => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      if (button.dataset.action === "review-price-change") await markPriceChangeReviewed(button.dataset.id);
     });
 
     function can(permission) {
@@ -214,6 +221,17 @@
     function logActionButton(log) {
       const openLink = log.details && log.details.shiftId ? `<a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(log.details.shiftId)}">Stand</a>` : `<span class="muted-cell">—</span>`;
       if (!log.reviewed && can("canViewLogs")) return `${openLink}<button class="small-btn" data-action="review-log" data-id="${escapeHtml(log.id)}">Ellenőrizve</button>`;
+      return openLink;
+    }
+
+    function priceChangeStatusHtml(item) {
+      if (item.reviewed) return `<span class="status-pill ok">Ellenőrizve</span><div class="muted-cell">${escapeHtml(item.reviewedByName || "")}</div>`;
+      return `<span class="status-pill warning">Nyitott</span>`;
+    }
+
+    function priceChangeActionButton(item) {
+      const openLink = item.shiftId ? `<a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(item.shiftId)}">Stand</a>` : `<span class="muted-cell">—</span>`;
+      if (!item.reviewed && can("canViewLogs")) return `${openLink}<button class="small-btn" data-action="review-price-change" data-id="${escapeHtml(item.id)}">Ellenőrizve</button>`;
       return openLink;
     }
 
@@ -283,34 +301,19 @@
       ].join("");
     }
 
-    function renderPriceChangeDetails(log) {
-      const details = log.details || {};
+    function renderPriceChangeDetails(item) {
       const rows = [];
-      rows.push(detailLine("Típus", escapeHtml(actionLabel(log.action))));
-      if (details.shiftLabel) rows.push(detailLine("Stand", escapeHtml(details.shiftLabel)));
-      if (details.businessDate) rows.push(detailLine("Dátum", escapeHtml(formatBusinessDate(details.businessDate))));
+      rows.push(detailLine("Típus", escapeHtml(item.sourceLabel || item.source || "-")));
+      rows.push(detailLine("Termék", escapeHtml(item.productName || "-")));
+      if (item.shiftLabel) rows.push(detailLine("Stand", escapeHtml(item.shiftLabel)));
+      if (item.businessDate) rows.push(detailLine("Dátum", escapeHtml(formatBusinessDate(item.businessDate))));
 
-      if (log.action === "product_updated") {
-        const before = details.before || {};
-        const after = details.after || {};
-        rows.push(detailLine("Termék", escapeHtml(details.productName || after.name || before.name || "-")));
-        if (toNumber(before.salePrice) !== toNumber(after.salePrice)) rows.push(detailLine("Eladási ár", `${escapeHtml(formatMoney(before.salePrice || 0))} → ${escapeHtml(formatMoney(after.salePrice || 0))}`));
-        if (can("canViewPurchasePrice") && toNumber(before.purchasePrice) !== toNumber(after.purchasePrice)) rows.push(detailLine("Beszerzési ár", `${escapeHtml(formatMoney(before.purchasePrice || 0))} → ${escapeHtml(formatMoney(after.purchasePrice || 0))}`));
+      if (toNumber(item.oldSalePrice) !== toNumber(item.newSalePrice)) {
+        rows.push(detailLine("Eladási ár", `${escapeHtml(formatMoney(item.oldSalePrice || 0))} → ${escapeHtml(formatMoney(item.newSalePrice || 0))}`));
       }
 
-      if (log.action === "stand_price_changed" && Array.isArray(details.changes)) {
-        details.changes.forEach(change => rows.push(`<div class="admin-detail-indent">${escapeHtml(change.productName || "-")}: ${escapeHtml(formatMoney(change.before || 0))} → ${escapeHtml(formatMoney(change.after || 0))}</div>`));
-      }
-
-      if (log.action === "closed_shift_modified" && Array.isArray(details.changes)) {
-        details.changes.filter(change => change.field === "salePriceAtShift").forEach(change => rows.push(`<div class="admin-detail-indent">${escapeHtml(change.productName || "-")}: ${escapeHtml(formatMoney(change.before || 0))} → ${escapeHtml(formatMoney(change.after || 0))}</div>`));
-      }
-
-      if (log.action === "open_shift_product_updates_applied" && Array.isArray(details.changes)) {
-        details.changes.forEach(item => {
-          if (!Array.isArray(item.changes)) return;
-          item.changes.filter(change => change.field === "eladási ár").forEach(change => rows.push(`<div class="admin-detail-indent">${escapeHtml(item.productName || "-")}: ${escapeHtml(formatMoney(change.before || 0))} → ${escapeHtml(formatMoney(change.after || 0))}</div>`));
-        });
+      if (can("canViewPurchasePrice") && toNumber(item.oldPurchasePrice) !== toNumber(item.newPurchasePrice)) {
+        rows.push(detailLine("Beszerzési ár", `${escapeHtml(formatMoney(item.oldPurchasePrice || 0))} → ${escapeHtml(formatMoney(item.newPurchasePrice || 0))}`));
       }
 
       return rows.join("");
@@ -357,6 +360,28 @@
       });
     }
 
+    function renderPriceChangeRows(target, list) {
+      target.innerHTML = "";
+
+      if (!list.length) {
+        target.innerHTML = `<tr><td colspan="5">Nincs ármódosítás.</td></tr>`;
+        return;
+      }
+
+      list.forEach(item => {
+        const tr = document.createElement("tr");
+        if (!item.reviewed) tr.classList.add("review-row");
+        tr.innerHTML = `
+          <td>${formatDateTime(item.changedAt)}<div class="muted-cell">${escapeHtml(item.source || "")}</div></td>
+          <td>${escapeHtml(item.changedByName || "-")}<div class="muted-cell">${escapeHtml(item.changedByRole || "")}</div></td>
+          <td class="admin-detail-cell">${renderPriceChangeDetails(item)}</td>
+          <td>${priceChangeStatusHtml(item)}</td>
+          <td class="action-cell">${priceChangeActionButton(item)}</td>
+        `;
+        target.appendChild(tr);
+      });
+    }
+
     function renderReviewProducts() {
       reviewProductsBody.innerHTML = "";
       productCardCount.textContent = String(reviewProducts.length);
@@ -386,7 +411,7 @@
         closedShiftModified: workerLogs.filter(log => log.action === "closed_shift_modified"),
         openingChanged: workerLogs.filter(log => log.action === "opening_changed"),
         workerProductCreated: workerLogs.filter(log => log.action === "product_created_from_stand"),
-        priceChanges: logs.filter(isPriceChangeLog),
+        priceChanges: priceChanges,
         debtDeletes: workerLogs.filter(log => log.action === "today_debt_deleted_from_stand_page" || log.action === "today_debt_deleted_from_debts_page"),
         negativeReceived: workerLogs.filter(log => (log.action === "shift_closed" || log.action === "closed_shift_modified") && hasNegativeReceived(log))
       };
@@ -412,7 +437,7 @@
       renderLogRows(closedShiftLogsBody, lists.closedShiftModified, renderClosedShiftDetails);
       renderLogRows(openingLogsBody, lists.openingChanged, renderOpeningChangeDetails);
       renderLogRows(workerProductLogsBody, lists.workerProductCreated, renderWorkerProductCreateDetails);
-      renderLogRows(priceChangeLogsBody, lists.priceChanges, renderPriceChangeDetails);
+      renderPriceChangeRows(priceChangeLogsBody, lists.priceChanges);
       renderLogRows(debtDeleteLogsBody, lists.debtDeletes, renderDebtDeleteDetails);
       renderLogRows(negativeReceivedLogsBody, lists.negativeReceived, renderNegativeReceivedDetails);
     }
@@ -426,10 +451,17 @@
     }
 
     async function loadLogs() {
-      const q = query(collection(db, "logs"), orderBy("createdAt", "desc"), limit(260));
+      const q = query(collection(db, "logs"), orderBy("createdAt", "desc"), limit(220));
       const snap = await getDocs(q);
       logs = [];
       snap.forEach(item => logs.push({ id: item.id, ...item.data() }));
+    }
+
+    async function loadPriceChanges() {
+      const q = query(collection(db, "priceChanges"), orderBy("changedAt", "desc"), limit(120));
+      const snap = await getDocs(q);
+      priceChanges = [];
+      snap.forEach(item => priceChanges.push({ id: item.id, ...item.data() }));
     }
 
     async function markProductReviewed(productId) {
@@ -491,6 +523,43 @@
       await loadPageData();
     }
 
+    async function markPriceChangeReviewed(priceChangeId) {
+      if (!can("canViewLogs")) {
+        showMessage("Nincs jogosultságod ármódosítás ellenőrzéséhez.", true);
+        return;
+      }
+
+      const item = priceChanges.find(entry => entry.id === priceChangeId);
+
+      await setDoc(doc(db, "priceChanges", priceChangeId), {
+        reviewed: true,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name
+      }, { merge: true });
+
+      await addDoc(collection(db, "logs"), {
+        action: "price_change_reviewed",
+        details: {
+          priceChangeId,
+          productId: item ? item.productId || "" : "",
+          productName: item ? item.productName || "" : "",
+          source: item ? item.source || "" : ""
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp(),
+        reviewed: true,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name
+      });
+
+      showMessage("Ármódosítás ellenőrizve.");
+      await loadPageData();
+    }
+
     async function loadPageData() {
       if (!can("canViewLogs")) {
         reviewInfo.textContent = "Nincs jogosultság az admin ellenőrzésekhez.";
@@ -506,7 +575,7 @@
       reviewInfo.textContent = "Betöltés...";
       showMessage("");
       try {
-        await Promise.all([loadReviewProducts(), loadLogs()]);
+        await Promise.all([loadReviewProducts(), loadLogs(), loadPriceChanges()]);
         renderReviewProducts();
         renderSummaries();
       } catch (error) {

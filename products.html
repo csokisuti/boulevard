@@ -360,6 +360,36 @@
       });
     }
 
+    async function writePriceChange(productId, productName, before, after, source) {
+      const oldSalePrice = toNumber(before?.salePrice);
+      const newSalePrice = toNumber(after?.salePrice);
+      const oldPurchasePrice = toNumber(before?.purchasePrice);
+      const newPurchasePrice = toNumber(after?.purchasePrice);
+
+      if (oldSalePrice === newSalePrice && oldPurchasePrice === newPurchasePrice) return;
+
+      const reviewedByDefault = can("canReviewProducts");
+
+      await addDoc(collection(db, "priceChanges"), {
+        productId,
+        productName: productName || "",
+        oldSalePrice,
+        newSalePrice,
+        oldPurchasePrice,
+        newPurchasePrice,
+        source,
+        sourceLabel: source === "products" ? "Terméklista ármódosítás" : source,
+        changedAt: serverTimestamp(),
+        changedBy: currentUser.uid,
+        changedByName: currentUserData.name,
+        changedByRole: currentUserData.role,
+        reviewed: reviewedByDefault,
+        reviewedAt: reviewedByDefault ? serverTimestamp() : null,
+        reviewedBy: reviewedByDefault ? currentUser.uid : "",
+        reviewedByName: reviewedByDefault ? currentUserData.name : ""
+      });
+    }
+
     async function updateCatalogVersion() {
       const version = Date.now();
 
@@ -861,23 +891,38 @@
         publicData.purchasePrice = purchasePrice;
       }
 
+      const oldSalePrice = oldProduct ? toNumber(oldProduct.salePrice) : salePrice;
+      const oldPurchasePrice = oldProduct ? toNumber(oldProduct.purchasePrice) : purchasePrice;
+      const newPurchasePriceForCompare = can("canEditPurchasePrice") ? purchasePrice : oldPurchasePrice;
+
+      if (editingProductId && (oldSalePrice !== salePrice || oldPurchasePrice !== newPurchasePriceForCompare)) {
+        publicData.lastPriceChangedAt = serverTimestamp();
+        publicData.lastPriceChangedBy = currentUser.uid;
+        publicData.lastPriceChangedByName = currentUserData.name;
+        publicData.lastPriceChangeSource = "products";
+      }
+
       if (editingProductId) {
         await updateDoc(doc(db, "products", editingProductId), publicData);
+
+        const afterProduct = {
+          name,
+          category,
+          unit,
+          salePrice,
+          purchasePrice: can("canEditPurchasePrice") ? purchasePrice : oldProduct?.purchasePrice || 0,
+          sortOrder,
+          active: selectedActive
+        };
 
         await writeLog("product_updated", {
           productId: editingProductId,
           productName: name,
           before: oldProduct || null,
-          after: {
-            name,
-            category,
-            unit,
-            salePrice,
-            purchasePrice: can("canEditPurchasePrice") ? purchasePrice : oldProduct?.purchasePrice || 0,
-            sortOrder,
-            active: selectedActive
-          }
+          after: afterProduct
         });
+
+        await writePriceChange(editingProductId, name, oldProduct || {}, afterProduct, "products");
 
         showMessage("Termék módosítva.");
       } else {
