@@ -462,7 +462,7 @@
     function filteredLists() {
       const workerLogs = logs.filter(isWorkerLog);
       return {
-        closedShiftModified: workerLogs.filter(log => log.action === "closed_shift_modified" || log.action === "closed_shift_finance_modified"),
+        closedShiftModified: logs.filter(log => (isWorkerLog(log) && log.action === "closed_shift_modified") || log.action === "closed_shift_finance_modified"),
         openingChanged: workerLogs.filter(log => log.action === "opening_changed"),
         workerProductCreated: workerLogs.filter(log => log.action === "product_created_from_stand"),
         priceChanges: priceChanges,
