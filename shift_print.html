@@ -84,6 +84,27 @@
     </section>
 
     <section class="print-section">
+      <h2>Meglévő nyitott tartozások a nyomtatáskor</h2>
+      <div class="print-table-wrapper">
+        <table class="print-table">
+          <thead>
+            <tr>
+              <th>Név</th>
+              <th>Eredeti összeg</th>
+              <th>Befizetve</th>
+              <th>Hátralék</th>
+              <th>Állapot</th>
+              <th>Megjegyzés</th>
+              <th>Felírva</th>
+            </tr>
+          </thead>
+          <tbody id="debtsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <section class="print-section">
       <h2>Összesítés</h2>
       <div id="financeSummary" class="print-meta-grid"></div>
     </section>
@@ -106,6 +127,7 @@
     const shiftMeta = document.getElementById("shiftMeta");
     const itemsBody = document.getElementById("itemsBody");
     const moneyBody = document.getElementById("moneyBody");
+    const debtsBody = document.getElementById("debtsBody");
     const financeSummary = document.getElementById("financeSummary");
 
     const sumSales = document.getElementById("sumSales");
@@ -262,6 +284,12 @@
       return 0;
     }
 
+    function debtStatusLabel(status) {
+      if (status === "paid") return "Rendezve";
+      if (status === "partial") return "Részben fizetve";
+      return "Nyitott";
+    }
+
     function metaLine(label, value) {
       return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
     }
@@ -310,6 +338,14 @@
         const bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
         return at - bt;
       });
+
+      const debtSnap = await getDocs(collection(db, "debts"));
+      const openDebts = [];
+      debtSnap.forEach(item => {
+        const data = item.data();
+        if (data.status !== "paid") openDebts.push({ id: item.id, ...data });
+      });
+      openDebts.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
 
       const totalSales = items.reduce((sum, item) => sum + itemCalc(item).salesValue, 0);
 
@@ -405,11 +441,29 @@
         });
       }
 
+      debtsBody.innerHTML = "";
+      if (!openDebts.length) {
+        debtsBody.innerHTML = `<tr><td colspan="7">Nincs nyitott tartozás.</td></tr>`;
+      } else {
+        openDebts.forEach(debt => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHtml(debt.name || "-")}</td>
+            <td>${formatMoney(debt.originalAmount || 0)}</td>
+            <td>${formatMoney(debt.paidAmount || 0)}</td>
+            <td>${formatMoney(debt.remainingAmount || 0)}</td>
+            <td>${escapeHtml(debtStatusLabel(debt.status || "open"))}</td>
+            <td>${escapeHtml(debt.note || "")}</td>
+            <td>${escapeHtml(debt.createdShiftLabel || "-")}</td>
+          `;
+          debtsBody.appendChild(tr);
+        });
+      }
+
       financeSummary.innerHTML = [
         metaLine("Előző stand leadó", formatMoney(shift.totalPreviousHandover || 0)),
         metaLine("Pultforgalom", formatMoney(totalSales)),
         metaLine("Bankkártya", formatMoney(shift.totalCardPayment || 0)),
-        metaLine("Lottó forgalom", formatMoney(shift.totalLottoTurnover || 0)),
         metaLine("Lottó forgalom", formatMoney(shift.totalLottoTurnover || 0)),
         metaLine("Repi", formatMoney(shift.totalRepi || 0)),
         metaLine("Egyéb bevétel", formatMoney(shift.totalMoneyIncome || 0)),

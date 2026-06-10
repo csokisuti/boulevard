@@ -602,6 +602,13 @@
       return currentShift && currentShift.status === "open";
     }
 
+    function canEditFinanceCurrentShift() {
+      if (!canModifyCurrentShift()) return false;
+      if (isOpenShift()) return true;
+      if (isClosedShift()) return can("canModifyClosedShift");
+      return false;
+    }
+
     function isCounterUnit(row) {
       return String(row.unitAtShift || "").trim().toLowerCase() === "számoló";
     }
@@ -1626,7 +1633,7 @@
       renderRepiTable();
       renderAllMoneyMovements();
 
-      const canWorkHere = isOpenShift() && canModifyCurrentShift();
+      const canWorkHere = canEditFinanceCurrentShift();
       financeFormBox.style.display = canWorkHere ? "" : "none";
       addMoneyMovementBtn.style.display = canWorkHere && (can("canManageMoneyMovements") || can("canCreateDebt") || can("canPayDebt")) ? "" : "none";
       addCardPaymentBtn.style.display = canWorkHere && can("canAddCardPayment") ? "" : "none";
@@ -2284,13 +2291,8 @@
     }
 
     async function createSimpleMoneyMovement(type, amount, personName, note, movementDate) {
-      if (!isOpenShift()) {
-        showMessage("Pénzmozgást csak nyitott standhoz lehet rögzíteni.", true);
-        return false;
-      }
-
-      if (!canModifyCurrentShift()) {
-        showShiftOwnerWarning();
+      if (!canEditFinanceCurrentShift()) {
+        showMessage("Ezen a standon nincs jogosultságod pénzügyi módosításhoz.", true);
         return false;
       }
 
@@ -2301,6 +2303,8 @@
 
       const movementRef = doc(collection(db, "shifts", currentShift.id, "moneyMovements"));
       const batch = writeBatch(db);
+      const closedFinanceEdit = isClosedShift();
+      const beforeFinancials = financeTotals();
 
       batch.set(movementRef, {
         type,
@@ -2317,16 +2321,20 @@
 
       const logRef = doc(collection(db, "logs"));
       batch.set(logRef, {
-        action: "money_movement_created",
+        action: closedFinanceEdit ? "closed_shift_finance_modified" : "money_movement_created",
         details: {
           shiftId: currentShift.id,
           shiftLabel: currentShift.shiftLabel || "",
+          businessDate: currentShift.businessDate || "",
+          businessDateLabel: currentShift.businessDateLabel || "",
           type,
           amount,
           effect: movementEffect(type, amount),
           personName,
           note,
-          movementDate
+          movementDate,
+          beforeFinancials,
+          source: closedFinanceEdit ? "closed_shift_finance_edit" : "open_shift_finance"
         },
         userId: currentUser.uid,
         userName: currentUserData.name,
@@ -2657,13 +2665,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         showMessage("Nincs jogosultságod tartozás befizetés rögzítéséhez.", true);
         return;
       }
-      if (!isOpenShift()) {
-        showMessage("Pénzmozgást csak nyitott standhoz lehet rögzíteni.", true);
-        return;
-      }
-
-      if (!canModifyCurrentShift()) {
-        showShiftOwnerWarning();
+      if (!canEditFinanceCurrentShift()) {
+        showMessage("Ezen a standon nincs jogosultságod pénzügyi módosításhoz.", true);
         return;
       }
 
@@ -2779,10 +2782,12 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       const logRef = doc(collection(db, "logs"));
       batch.set(logRef, {
-        action: "money_movement_created",
+        action: isClosedShift() ? "closed_shift_finance_modified" : "money_movement_created",
         details: {
           shiftId: currentShift.id,
           shiftLabel: currentShift.shiftLabel || "",
+          businessDate: currentShift.businessDate || "",
+          businessDateLabel: currentShift.businessDateLabel || "",
           type,
           amount,
           effect: movementEffect(type, amount),
@@ -2790,7 +2795,9 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
           note,
           debtId,
           debtBefore,
-          debtAfter
+          debtAfter,
+          beforeFinancials: financeTotals(),
+          source: isClosedShift() ? "closed_shift_finance_edit" : "open_shift_finance"
         },
         userId: currentUser.uid,
         userName: currentUserData.name,
@@ -3228,7 +3235,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       financeDetails.style.display = "";
       quickProductDetails.style.display = isOpenShift() && canModifyCurrentShift() && can("canCreateProductFromStand") ? "" : "none";
       quickPurchasePriceBox.style.display = can("canEditPurchasePrice") ? "" : "none";
-      financeFormBox.style.display = canModifyCurrentShift() ? "" : "none";
+      financeFormBox.style.display = canEditFinanceCurrentShift() ? "" : "none";
       setDefaultFinanceDates();
 
       if (isClosedShift()) {
