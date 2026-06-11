@@ -146,6 +146,8 @@
           <tbody id="standBody"></tbody>
         </table>
       </div>
+
+      <div id="standMobileCards" class="stand-mobile-cards"></div>
     </section>
 
     <details class="panel collapsible-panel" id="financeDetails">
@@ -413,6 +415,7 @@
     const shiftInfo = document.getElementById("shiftInfo");
     const shiftTitle = document.getElementById("shiftTitle");
     const standBody = document.getElementById("standBody");
+    const standMobileCards = document.getElementById("standMobileCards");
     const message = document.getElementById("message");
     const totalSales = document.getElementById("totalSales");
     const saveDraftBtn = document.getElementById("saveDraftBtn");
@@ -1769,6 +1772,111 @@
       return `<span class="muted-cell">—</span>`;
     }
 
+
+    function fieldDisabledForMobile(row, field) {
+      if (!canModifyCurrentShift()) return true;
+      if (field === "remaining") return false;
+      return !isFieldUnlocked(row, field);
+    }
+
+    function mobileInput(row, index, field, value, label, extraClass = "") {
+      const disabled = fieldDisabledForMobile(row, field);
+      const unlock = field !== "remaining" && canModifyCurrentShift();
+      return `
+        <label class="mobile-field ${extraClass}">
+          <span>${escapeHtml(label)}</span>
+          <div class="mobile-input-line">
+            <input data-index="${index}" data-field="${field}" value="${escapeHtml(value)}" ${disabled ? "disabled" : ""}>
+            ${unlock ? `<button class="mobile-unlock-btn" data-action="unlock-field" data-index="${index}" data-field="${field}" title="Módosítás">✎</button>` : ""}
+          </div>
+        </label>
+      `;
+    }
+
+    function renderMobileCards() {
+      if (!standMobileCards) return;
+
+      const search = searchInput.value.trim().toLowerCase();
+      standMobileCards.innerHTML = "";
+      let lastCategory = "";
+
+      rows.forEach((row, index) => {
+        const searchable = `${row.productNameAtShift} ${row.categoryAtShift}`.toLowerCase();
+        if (search && !searchable.includes(search)) return;
+
+        const currentCategory = categoryName(row);
+
+        if (currentCategory !== lastCategory) {
+          const stats = categoryStats(currentCategory);
+          const categoryBlock = document.createElement("div");
+          categoryBlock.className = `mobile-category-header ${stats.allFilled ? "category-complete" : ""}`;
+          categoryBlock.innerHTML = `
+            <button class="category-toggle" data-category="${escapeHtml(currentCategory)}">${collapsedCategories[currentCategory] ? "▶" : "▼"}</button>
+            <strong>${escapeHtml(currentCategory)}</strong>
+            <span>Összesen: ${formatMoney(stats.total)}</span>
+            <span>${stats.filled}/${stats.all} kitöltve</span>
+            ${canUseZeroConsumptionShortcut() ? `<button class="category-zero-btn" data-action="zero-category-consumption" data-category="${escapeHtml(currentCategory)}">✓ 0 fogyás</button>` : ""}
+          `;
+          standMobileCards.appendChild(categoryBlock);
+          lastCategory = currentCategory;
+        }
+
+        if (collapsedCategories[currentCategory]) return;
+
+        const c = calc(row);
+        const counter = isCounterUnit(row);
+        const card = document.createElement("article");
+        card.className = "mobile-product-card";
+        if (openingChanged(row)) card.classList.add("review-row");
+        if (receivedNeedsNote(row)) card.classList.add("negative-received-row");
+        if (row.catalogPriceChangedInShift || row.standPriceChangedInShift) card.classList.add("price-updated-row");
+
+        const receivedNoteInput = receivedNeedsNote(row) || String(row.receivedNote || "").trim()
+          ? mobileInput(row, index, "receivedNote", row.receivedNote || "", "Kivétel megjegyzés", "mobile-note-field")
+          : "";
+
+        card.innerHTML = `
+          <div class="mobile-product-title">
+            <div>
+              <strong>${escapeHtml(row.productNameAtShift)}</strong>
+              <span>${escapeHtml(row.unitAtShift)} | ${escapeHtml(currentCategory)}</span>
+            </div>
+            <div class="mobile-badges">
+              ${row.adminReviewNeeded ? `<span class="mini-badge">ellenőrizendő</span>` : ""}
+              ${counter ? `<span class="mini-badge">számoló</span>` : ""}
+              ${openingChanged(row) ? `<span class="mini-badge">nyitó mód.</span>` : ""}
+              ${row.catalogPriceChangedInShift ? `<span class="mini-badge price-change-badge">listaár frissült</span>` : ""}
+              ${row.standPriceChangedInShift ? `<span class="mini-badge price-change-badge">stand ár mód.</span>` : ""}
+            </div>
+          </div>
+
+          <div class="mobile-fields-grid">
+            ${mobileInput(row, index, "openingFinal", row.openingFinal, "Nyitó")}
+            ${counter ? `<div class="mobile-field"><span>Bejövő áru</span><strong>—</strong></div>` : mobileInput(row, index, "receivedIn", receivedInValue(row), "Bejövő áru")}
+            ${counter ? `<div class="mobile-field"><span>Lejárat / kivétel</span><strong>—</strong></div>` : mobileInput(row, index, "receivedOut", receivedOutValue(row), "Lejárat / kivétel", "mobile-stock-out")}
+            ${receivedNoteInput}
+            <label class="mobile-field mobile-remaining-field">
+              <span>Maradvány / záró</span>
+              <div class="mobile-input-line">
+                <input data-index="${index}" data-field="remaining" value="${escapeHtml(row.remaining)}" ${canModifyCurrentShift() ? "" : "disabled"}>
+                ${canUseZeroConsumptionShortcut() ? `<button class="zero-consumption-btn" data-action="zero-row-consumption" data-index="${index}">✓</button>` : ""}
+              </div>
+            </label>
+            ${mobileInput(row, index, "salePriceAtShift", row.salePriceAtShift, "Egységár")}
+          </div>
+
+          <div class="mobile-calculated-grid">
+            <div><span>Összesen</span><strong>${counter ? "—" : formatNumber(c.total)}</strong></div>
+            <div><span>Fogyás</span><strong>${formatNumber(c.consumption)}</strong></div>
+            <div><span>Készlet most</span><strong>${formatNumber(c.currentStock)}</strong></div>
+            <div><span>Eladási érték</span><strong>${formatMoney(c.salesValue)}</strong></div>
+          </div>
+        `;
+
+        standMobileCards.appendChild(card);
+      });
+    }
+
     function renderRows() {
       const search = searchInput.value.trim().toLowerCase();
       standBody.innerHTML = "";
@@ -1836,6 +1944,7 @@
 
       updateTotalSales();
       updateCategorySummaries();
+      renderMobileCards();
       renderFinance();
     }
 
@@ -3096,22 +3205,28 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       }
     });
 
-    standBody.addEventListener("input", (event) => {
+    function handleStandInput(event) {
       const input = event.target.closest("input");
       if (!input || input.disabled) return;
 
       const tr = input.closest("tr");
-      const index = Number(tr.dataset.index);
+      const index = Number(input.dataset.index ?? tr?.dataset.index);
       const field = input.dataset.field;
+
+      if (!rows[index]) return;
 
       rows[index][field] = input.value;
 
       if (field === "receivedNote") return;
 
-      updateRowDisplay(tr, rows[index]);
-    });
+      if (tr) updateRowDisplay(tr, rows[index]);
+      renderMobileCards();
+    }
 
-    standBody.addEventListener("click", (event) => {
+    standBody.addEventListener("input", handleStandInput);
+    standMobileCards.addEventListener("input", handleStandInput);
+
+    function handleStandClick(event) {
       const categoryButton = event.target.closest(".category-toggle");
 
       if (categoryButton) {
@@ -3198,7 +3313,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       row.unlockedFields[field] = true;
 
-      const wrapper = editButton.closest(".input-edit-wrap");
+      const wrapper = editButton.closest(".input-edit-wrap") || editButton.closest(".mobile-input-line");
       const input = wrapper ? wrapper.querySelector("input") : null;
 
       if (input) {
@@ -3206,7 +3321,13 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         input.focus();
         input.select();
       }
-    });
+
+      renderMobileCards();
+    }
+
+    standBody.addEventListener("click", handleStandClick);
+    standMobileCards.addEventListener("click", handleStandClick);
+
 
     moneyType.addEventListener("change", () => {
       const type = moneyType.value;

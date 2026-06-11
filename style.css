@@ -1464,3 +1464,170 @@ button:disabled {
     max-width: none;
   }
 }
+
+
+.stand-mobile-cards {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .stand-table {
+    display: none !important;
+  }
+
+  .stand-mobile-cards {
+    display: block;
+  }
+
+  #standTablePanel .table-wrapper {
+    display: none;
+  }
+
+  .mobile-category-header {
+    background: #111827;
+    color: #ffffff;
+    border-radius: 16px;
+    padding: 12px;
+    margin: 14px 0 10px;
+    display: grid;
+    gap: 7px;
+  }
+
+  .mobile-category-header .category-toggle {
+    width: 42px;
+    min-height: 34px;
+  }
+
+  .mobile-category-header .category-zero-btn {
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .mobile-product-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 18px;
+    padding: 14px;
+    margin-bottom: 14px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  }
+
+  .mobile-product-title {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-bottom: 1px solid #f3f4f6;
+    padding-bottom: 10px;
+    margin-bottom: 12px;
+  }
+
+  .mobile-product-title strong {
+    display: block;
+    font-size: 18px;
+    color: #111827;
+  }
+
+  .mobile-product-title span {
+    color: #6b7280;
+    font-size: 13px;
+  }
+
+  .mobile-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .mobile-fields-grid {
+    display: grid;
+    gap: 10px;
+  }
+
+  .mobile-field {
+    display: grid;
+    gap: 5px;
+  }
+
+  .mobile-field > span {
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .mobile-input-line {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .mobile-input-line input,
+  .mobile-field input {
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid #d1d5db;
+    border-radius: 12px;
+    padding: 8px 10px;
+    font-size: 16px;
+    box-sizing: border-box;
+  }
+
+  .mobile-input-line input:disabled {
+    background: #f3f4f6;
+    color: #6b7280;
+  }
+
+  .mobile-unlock-btn,
+  .mobile-input-line .zero-consumption-btn {
+    width: 44px;
+    min-height: 44px;
+    border-radius: 12px;
+  }
+
+  .mobile-stock-out input {
+    border-color: #f97316;
+  }
+
+  .mobile-note-field {
+    grid-column: 1 / -1;
+  }
+
+  .mobile-note-field .mobile-input-line {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-calculated-grid {
+    margin-top: 12px;
+    border-top: 1px solid #f3f4f6;
+    padding-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mobile-calculated-grid div {
+    background: #f9fafb;
+    border-radius: 12px;
+    padding: 10px;
+  }
+
+  .mobile-calculated-grid span {
+    display: block;
+    color: #6b7280;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+
+  .mobile-calculated-grid strong {
+    color: #111827;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  .mobile-calculated-grid {
+    grid-template-columns: 1fr;
+  }
+}
