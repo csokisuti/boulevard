@@ -1079,3 +1079,17 @@ button:disabled {
 .print-table td:last-child {
   min-width: 180px;
 }
+
+
+.opening-adjustments-table td,
+.opening-adjustments-table th {
+  vertical-align: top;
+}
+
+.opening-shortage-row td {
+  background: #fff7ed;
+}
+
+.opening-surplus-row td {
+  background: #f0fdf4;
+}

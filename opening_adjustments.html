@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boulevard - Nyitó eltérések</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Nyitó eltérések</h1>
+      <p id="userInfo">Betöltés...</p>
+    </div>
+    <button id="backBtn" class="secondary-btn">Vissza</button>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Szűrés</h2>
+          <p id="pageInfo">Azokból a nyitó módosításokból számol, ahol a következő standoló átírta az automatikusan áthozott nyitót.</p>
+        </div>
+        <button id="refreshBtn" class="secondary-dark-btn">Frissítés</button>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label for="dateFrom">Dátumtól</label>
+          <input id="dateFrom" type="date">
+        </div>
+        <div>
+          <label for="dateTo">Dátumig</label>
+          <input id="dateTo" type="date">
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="loadShiftsBtn">Standok betöltése</button>
+        <button id="selectAllBtn" class="secondary-dark-btn">Összes kijelölése</button>
+        <button id="selectNoneBtn" class="secondary-dark-btn">Kijelölés törlése</button>
+        <button id="runReportBtn">Lekérés</button>
+      </div>
+
+      <div id="message"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Kiválasztható standok</h2>
+          <p id="shiftListInfo">Betöltés...</p>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table opening-adjustments-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Dátum</th>
+              <th>Stand</th>
+              <th>Lezárta</th>
+              <th>Előző stand</th>
+              <th>Állapot</th>
+            </tr>
+          </thead>
+          <tbody id="shiftListBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Személyenkénti összesítés</h2>
+          <p id="summaryInfo">Még nincs lekérés.</p>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table opening-adjustments-table">
+          <thead>
+            <tr>
+              <th>Dolgozó</th>
+              <th>Eltéréses tételek</th>
+              <th>Hiány értéke</th>
+              <th>Többlet értéke</th>
+              <th>Nettó érték</th>
+              <th>Darab nettó</th>
+            </tr>
+          </thead>
+          <tbody id="personSummaryBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Tételes lista</h2>
+          <p id="detailInfo">A kiválasztott időszak nyitó módosításai tételenként.</p>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table opening-adjustments-table">
+          <thead>
+            <tr>
+              <th>Előző dolgozó</th>
+              <th>Javító stand</th>
+              <th>Termék</th>
+              <th>Automata nyitó</th>
+              <th>Módosított nyitó</th>
+              <th>Eltérés</th>
+              <th>Egységár</th>
+              <th>Érték</th>
+              <th>Típus</th>
+              <th>Megjegyzés</th>
+            </tr>
+          </thead>
+          <tbody id="detailsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { auth, db } from "./firebase.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { collection, doc, getDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { hasPermission, roleLabel } from "./permissions.js";
+
+    const userInfo = document.getElementById("userInfo");
+    const backBtn = document.getElementById("backBtn");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const dateFrom = document.getElementById("dateFrom");
+    const dateTo = document.getElementById("dateTo");
+    const loadShiftsBtn = document.getElementById("loadShiftsBtn");
+    const selectAllBtn = document.getElementById("selectAllBtn");
+    const selectNoneBtn = document.getElementById("selectNoneBtn");
+    const runReportBtn = document.getElementById("runReportBtn");
+    const message = document.getElementById("message");
+    const shiftListInfo = document.getElementById("shiftListInfo");
+    const summaryInfo = document.getElementById("summaryInfo");
+    const detailInfo = document.getElementById("detailInfo");
+    const shiftListBody = document.getElementById("shiftListBody");
+    const personSummaryBody = document.getElementById("personSummaryBody");
+    const detailsBody = document.getElementById("detailsBody");
+
+    let currentUser = null;
+    let currentUserData = null;
+    let shifts = [];
+    let shiftMap = new Map();
+
+    backBtn.addEventListener("click", () => {
+      window.location.href = "dashboard.html";
+    });
+
+    refreshBtn.addEventListener("click", async () => {
+      await loadShifts();
+    });
+
+    loadShiftsBtn.addEventListener("click", async () => {
+      await loadShifts();
+    });
+
+    selectAllBtn.addEventListener("click", () => {
+      document.querySelectorAll(".shift-check").forEach(input => input.checked = true);
+    });
+
+    selectNoneBtn.addEventListener("click", () => {
+      document.querySelectorAll(".shift-check").forEach(input => input.checked = false);
+    });
+
+    runReportBtn.addEventListener("click", async () => {
+      await runReport();
+    });
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function toNumber(value) {
+      const n = Number(String(value ?? "0").replace(/,/g, "."));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function hasValue(value) {
+      return value !== "" && value !== null && value !== undefined;
+    }
+
+    function formatMoney(value) {
+      return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function formatNumber(value) {
+      const n = Number(value || 0);
+      if (Number.isInteger(n)) return String(n);
+      return String(Number(n.toFixed(3))).replace(".", ",");
+    }
+
+    function inputDate(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function setDefaultDates() {
+      const to = new Date();
+      const from = new Date();
+      from.setMonth(from.getMonth() - 2);
+      dateFrom.value = inputDate(from);
+      dateTo.value = inputDate(to);
+    }
+
+    function timestampToTime(value) {
+      if (!value) return 0;
+      const date = value.toDate ? value.toDate() : new Date(value);
+      const time = date.getTime();
+      return Number.isFinite(time) ? time : 0;
+    }
+
+    function formatBusinessDate(value) {
+      if (!value) return "-";
+      const parts = String(value).split("-");
+      if (parts.length !== 3) return value;
+      return `${parts[0]}.${parts[1]}.${parts[2]}.`;
+    }
+
+    function formatBusinessDateRange(start, end) {
+      if (!start && !end) return "-";
+      const safeStart = start || end;
+      const safeEnd = end || start;
+      if (!safeEnd || safeStart === safeEnd) return formatBusinessDate(safeStart);
+      return `${formatBusinessDate(safeStart)} - ${formatBusinessDate(safeEnd)}`;
+    }
+
+    function shiftStartDateValue(shift) {
+      return shift?.businessDateStart || shift?.businessDate || "";
+    }
+
+    function shiftEndDateValue(shift) {
+      return shift?.businessDateEnd || shiftStartDateValue(shift);
+    }
+
+    function shiftDateLabel(shift) {
+      return shift?.businessDateLabel || formatBusinessDateRange(shiftStartDateValue(shift), shiftEndDateValue(shift));
+    }
+
+    function dateInRange(shift) {
+      const start = shiftStartDateValue(shift);
+      const end = shiftEndDateValue(shift);
+      const from = dateFrom.value || "0000-01-01";
+      const to = dateTo.value || "9999-12-31";
+      const main = start || end;
+      if (!main) return true;
+      return main >= from && main <= to;
+    }
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    function responsibleShiftLabel(shift) {
+      if (!shift?.previousShiftId) return "Nincs előző stand";
+      const previous = shiftMap.get(shift.previousShiftId);
+      if (!previous) return "Előző stand nincs betöltve";
+      return `${shiftDateLabel(previous)} | ${previous.assignedUserName || previous.closedByName || "-"}`;
+    }
+
+    async function loadShifts() {
+      if (!hasPermission(currentUserData, "canViewReports") && !hasPermission(currentUserData, "canViewLogs")) {
+        shiftListInfo.textContent = "Nincs jogosultság.";
+        shiftListBody.innerHTML = `<tr><td colspan="6">Nincs jogosultság.</td></tr>`;
+        return;
+      }
+
+      showMessage("");
+      shiftListInfo.textContent = "Betöltés...";
+      shiftListBody.innerHTML = `<tr><td colspan="6">Betöltés...</td></tr>`;
+
+      const q = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(180));
+      const snap = await getDocs(q);
+
+      shifts = [];
+      shiftMap = new Map();
+
+      snap.forEach(item => {
+        const data = { id: item.id, ...item.data() };
+        if (data.status === "closed") {
+          shifts.push(data);
+          shiftMap.set(data.id, data);
+        }
+      });
+
+      const previousIds = [...new Set(shifts.map(shift => shift.previousShiftId).filter(id => id && !shiftMap.has(id)))];
+
+      for (const id of previousIds) {
+        const previousSnap = await getDoc(doc(db, "shifts", id));
+        if (previousSnap.exists()) {
+          shiftMap.set(previousSnap.id, { id: previousSnap.id, ...previousSnap.data() });
+        }
+      }
+
+      renderShiftList();
+    }
+
+    function renderShiftList() {
+      const filtered = shifts.filter(dateInRange);
+
+      if (!filtered.length) {
+        shiftListInfo.textContent = "Nincs lezárt stand ebben az időszakban.";
+        shiftListBody.innerHTML = `<tr><td colspan="6">Nincs találat.</td></tr>`;
+        return;
+      }
+
+      shiftListInfo.textContent = `${filtered.length} lezárt stand az időszakban`;
+      shiftListBody.innerHTML = "";
+
+      filtered.forEach(shift => {
+        const previous = shift.previousShiftId ? shiftMap.get(shift.previousShiftId) : null;
+        const statusText = previous ? "Számolható" : "Nincs előző stand";
+        const disabled = previous ? "" : "disabled";
+        const tr = document.createElement("tr");
+
+        tr.innerHTML = `
+          <td><input class="shift-check" type="checkbox" value="${escapeHtml(shift.id)}" ${disabled} ${previous ? "checked" : ""}></td>
+          <td>${escapeHtml(shiftDateLabel(shift))}</td>
+          <td>${escapeHtml(shift.assignedUserName || "-")}</td>
+          <td>${escapeHtml(shift.closedByName || "-")}</td>
+          <td>${escapeHtml(responsibleShiftLabel(shift))}</td>
+          <td>${escapeHtml(statusText)}</td>
+        `;
+
+        shiftListBody.appendChild(tr);
+      });
+    }
+
+    async function loadShiftItems(shiftId) {
+      const snap = await getDocs(collection(db, "shifts", shiftId, "items"));
+      const items = [];
+      snap.forEach(item => items.push({ id: item.id, ...item.data() }));
+      return items;
+    }
+
+    function isOpeningChanged(item) {
+      return toNumber(item.openingFinal) !== toNumber(item.openingAuto);
+    }
+
+    function openingDifferenceRow(shift, previousShift, item) {
+      const autoOpening = toNumber(item.openingAuto);
+      const finalOpening = toNumber(item.openingFinal);
+      const quantityDiff = finalOpening - autoOpening;
+      const unitPrice = toNumber(item.salePriceAtShift);
+      const valueDiff = quantityDiff * unitPrice;
+      const type = quantityDiff < 0 ? "Hiány" : "Többlet";
+
+      return {
+        previousUserId: previousShift.assignedUserId || previousShift.closedBy || "",
+        previousUserName: previousShift.assignedUserName || previousShift.closedByName || "Ismeretlen",
+        currentShiftId: shift.id,
+        currentShiftLabel: shift.shiftLabel || shiftDateLabel(shift),
+        currentShiftDate: shiftDateLabel(shift),
+        changedByName: shift.assignedUserName || shift.closedByName || "-",
+        productId: item.productId || item.id,
+        productName: item.productNameAtShift || "-",
+        category: item.categoryAtShift || "-",
+        unit: item.unitAtShift || "-",
+        autoOpening,
+        finalOpening,
+        quantityDiff,
+        unitPrice,
+        valueDiff,
+        absoluteValue: Math.abs(valueDiff),
+        type,
+        note: item.openingChangeNote || "",
+        previousShiftLabel: previousShift.shiftLabel || shiftDateLabel(previousShift)
+      };
+    }
+
+    async function runReport() {
+      showMessage("");
+      personSummaryBody.innerHTML = `<tr><td colspan="6">Számolás...</td></tr>`;
+      detailsBody.innerHTML = `<tr><td colspan="10">Számolás...</td></tr>`;
+
+      const selectedIds = [...document.querySelectorAll(".shift-check:checked")].map(input => input.value);
+      const selectedShifts = selectedIds.map(id => shiftMap.get(id)).filter(Boolean);
+
+      if (!selectedShifts.length) {
+        summaryInfo.textContent = "Nincs kiválasztott stand.";
+        personSummaryBody.innerHTML = `<tr><td colspan="6">Válassz ki legalább egy standot.</td></tr>`;
+        detailsBody.innerHTML = `<tr><td colspan="10">Nincs adat.</td></tr>`;
+        return;
+      }
+
+      const rows = [];
+
+      for (const shift of selectedShifts) {
+        if (!shift.previousShiftId) continue;
+        const previousShift = shiftMap.get(shift.previousShiftId);
+        if (!previousShift) continue;
+
+        const items = await loadShiftItems(shift.id);
+        items
+          .filter(isOpeningChanged)
+          .forEach(item => rows.push(openingDifferenceRow(shift, previousShift, item)));
+      }
+
+      renderReport(rows, selectedShifts.length);
+    }
+
+    function renderReport(rows, selectedCount) {
+      if (!rows.length) {
+        summaryInfo.textContent = `${selectedCount} kiválasztott standban nincs nyitó eltérés.`;
+        personSummaryBody.innerHTML = `<tr><td colspan="6">Nincs nyitó eltérés.</td></tr>`;
+        detailsBody.innerHTML = `<tr><td colspan="10">Nincs tételes eltérés.</td></tr>`;
+        return;
+      }
+
+      const people = new Map();
+
+      rows.forEach(row => {
+        if (!people.has(row.previousUserId || row.previousUserName)) {
+          people.set(row.previousUserId || row.previousUserName, {
+            name: row.previousUserName,
+            count: 0,
+            shortageValue: 0,
+            surplusValue: 0,
+            netValue: 0,
+            netQuantity: 0
+          });
+        }
+
+        const person = people.get(row.previousUserId || row.previousUserName);
+        person.count += 1;
+        person.netValue += row.valueDiff;
+        person.netQuantity += row.quantityDiff;
+
+        if (row.valueDiff < 0) {
+          person.shortageValue += Math.abs(row.valueDiff);
+        } else {
+          person.surplusValue += row.valueDiff;
+        }
+      });
+
+      const personRows = [...people.values()].sort((a, b) => Math.abs(b.netValue) - Math.abs(a.netValue));
+
+      summaryInfo.textContent = `${rows.length} eltérés ${selectedCount} kiválasztott standból`;
+      personSummaryBody.innerHTML = "";
+
+      personRows.forEach(person => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(person.name)}</strong></td>
+          <td>${person.count}</td>
+          <td class="negative-text">${formatMoney(person.shortageValue)}</td>
+          <td class="positive-text">${formatMoney(person.surplusValue)}</td>
+          <td class="${person.netValue < 0 ? "negative-text" : "positive-text"}">${formatMoney(person.netValue)}</td>
+          <td>${formatNumber(person.netQuantity)}</td>
+        `;
+        personSummaryBody.appendChild(tr);
+      });
+
+      rows.sort((a, b) => {
+        const nameCompare = String(a.previousUserName).localeCompare(String(b.previousUserName), "hu", { sensitivity: "base" });
+        if (nameCompare !== 0) return nameCompare;
+        return Math.abs(b.valueDiff) - Math.abs(a.valueDiff);
+      });
+
+      detailsBody.innerHTML = "";
+
+      rows.forEach(row => {
+        const tr = document.createElement("tr");
+        tr.className = row.valueDiff < 0 ? "opening-shortage-row" : "opening-surplus-row";
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(row.previousUserName)}</strong><div class="muted-cell">Előző stand: ${escapeHtml(row.previousShiftLabel)}</div></td>
+          <td>${escapeHtml(row.currentShiftDate)}<div class="muted-cell">Javította: ${escapeHtml(row.changedByName)}</div></td>
+          <td>${escapeHtml(row.productName)}<div class="muted-cell">${escapeHtml(row.category)} | ${escapeHtml(row.unit)}</div></td>
+          <td>${formatNumber(row.autoOpening)}</td>
+          <td>${formatNumber(row.finalOpening)}</td>
+          <td class="${row.quantityDiff < 0 ? "negative-text" : "positive-text"}">${formatNumber(row.quantityDiff)}</td>
+          <td>${formatMoney(row.unitPrice)}</td>
+          <td class="${row.valueDiff < 0 ? "negative-text" : "positive-text"}">${formatMoney(row.valueDiff)}</td>
+          <td>${escapeHtml(row.type)}</td>
+          <td>${escapeHtml(row.note || "-")}</td>
+        `;
+        detailsBody.appendChild(tr);
+      });
+
+      detailInfo.textContent = `${rows.length} tételes nyitó eltérés`;
+    }
+
+    onAuthStateChanged(auth, async user => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+
+      currentUser = user;
+      const userSnap = await getDoc(doc(db, "users", user.uid));
+
+      if (!userSnap.exists()) {
+        userInfo.textContent = "Nincs felhasználói adat.";
+        return;
+      }
+
+      currentUserData = userSnap.data();
+
+      if (!currentUserData.active) {
+        userInfo.textContent = "Ez a felhasználó inaktív.";
+        return;
+      }
+
+      if (!hasPermission(currentUserData, "canViewReports") && !hasPermission(currentUserData, "canViewLogs")) {
+        userInfo.textContent = "Nincs jogosultság.";
+        shiftListBody.innerHTML = `<tr><td colspan="6">Nincs jogosultság.</td></tr>`;
+        return;
+      }
+
+      userInfo.textContent = `${currentUserData.name || currentUser.email} - ${roleLabel(currentUserData.role)}`;
+      setDefaultDates();
+
+      try {
+        await loadShifts();
+      } catch (error) {
+        console.error(error);
+        showMessage("Nem sikerült betölteni a nyitó eltérés riportot.", true);
+        shiftListInfo.textContent = "Hiba történt betöltés közben.";
+      }
+    });
+  </script>
+</body>
+</html>
