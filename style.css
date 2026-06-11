@@ -1093,3 +1093,374 @@ button:disabled {
 .opening-surplus-row td {
   background: #f0fdf4;
 }
+
+
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .container {
+    width: min(100%, 1000px);
+    padding: 16px;
+  }
+
+  .menu-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stand-table {
+    min-width: 980px;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  input,
+  select,
+  textarea,
+  button,
+  .small-link-btn {
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 760px) {
+  body {
+    font-size: 15px;
+  }
+
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
+  }
+
+  .topbar button {
+    width: 100%;
+  }
+
+  .container {
+    padding: 12px;
+  }
+
+  .panel {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .menu-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .menu-card {
+    padding: 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .button-row,
+  .stand-actions,
+  .dashboard-action-cell,
+  .print-header-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .button-row button,
+  .stand-actions button,
+  .dashboard-action-cell a,
+  .print-header-actions button {
+    width: 100%;
+    text-align: center;
+  }
+
+  .summary-box {
+    width: 100%;
+  }
+
+  .finance-summary-grid,
+  .print-summary-grid,
+  .print-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .table-wrapper {
+    overflow: visible;
+  }
+
+  .data-table,
+  .stand-table,
+  .admin-log-table,
+  .dashboard-closed-table,
+  .opening-adjustments-table {
+    min-width: 0;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 12px;
+  }
+
+  .data-table thead,
+  .stand-table thead,
+  .admin-log-table thead,
+  .dashboard-closed-table thead,
+  .opening-adjustments-table thead {
+    display: none;
+  }
+
+  .data-table tbody,
+  .stand-table tbody,
+  .admin-log-table tbody,
+  .dashboard-closed-table tbody,
+  .opening-adjustments-table tbody {
+    display: block;
+  }
+
+  .data-table tr,
+  .stand-table tr,
+  .admin-log-table tr,
+  .dashboard-closed-table tr,
+  .opening-adjustments-table tr {
+    display: block;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    margin-bottom: 12px;
+    padding: 10px;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+  }
+
+  .data-table td,
+  .stand-table td,
+  .admin-log-table td,
+  .dashboard-closed-table td,
+  .opening-adjustments-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    border: 0;
+    border-bottom: 1px solid #f3f4f6;
+    padding: 9px 4px;
+    text-align: right;
+    min-height: 36px;
+  }
+
+  .data-table td:last-child,
+  .stand-table td:last-child,
+  .admin-log-table td:last-child,
+  .dashboard-closed-table td:last-child,
+  .opening-adjustments-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .data-table td::before,
+  .stand-table td::before,
+  .admin-log-table td::before,
+  .dashboard-closed-table td::before,
+  .opening-adjustments-table td::before {
+    content: attr(data-label);
+    flex: 0 0 42%;
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .stand-table .category-row {
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    background: transparent;
+  }
+
+  .stand-table .category-row td {
+    display: block;
+    text-align: left;
+    background: #111827;
+    color: #ffffff;
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  .stand-table .category-row td::before {
+    content: "";
+    display: none;
+  }
+
+  .category-title,
+  .category-total,
+  .category-status,
+  .category-zero-btn {
+    display: block;
+    margin-top: 6px;
+  }
+
+  .category-toggle {
+    margin-right: 8px;
+  }
+
+  .data-table input,
+  .data-table select,
+  .data-table textarea,
+  .stand-table input,
+  .stand-table select,
+  .stand-table textarea {
+    width: 100%;
+    max-width: 180px;
+    font-size: 16px;
+  }
+
+  .stand-table td:first-child {
+    display: block;
+    text-align: left;
+    font-size: 17px;
+    padding-bottom: 12px;
+  }
+
+  .stand-table td:first-child::before {
+    content: "";
+    display: none;
+  }
+
+  .input-edit-wrap,
+  .remaining-cell-wrap {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .remaining-cell-wrap .remaining-input {
+    max-width: 160px;
+  }
+
+  .received-note-cell input {
+    max-width: none;
+  }
+
+  .admin-detail-cell {
+    display: block !important;
+    text-align: left !important;
+  }
+
+  .admin-detail-cell::before {
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .action-cell,
+  .dashboard-action-cell {
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .action-cell::before,
+  .dashboard-action-cell::before {
+    align-self: flex-start;
+  }
+
+  .small-link-btn,
+  .small-btn,
+  .danger-small-btn,
+  .secondary-inline-btn {
+    width: 100%;
+    text-align: center;
+    box-sizing: border-box;
+  }
+
+  .finance-block {
+    padding: 12px;
+  }
+
+  .print-sheet {
+    margin: 12px;
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .print-title-block {
+    flex-direction: column;
+  }
+
+  .print-logo-box {
+    width: 100%;
+    text-align: center;
+  }
+
+  .print-table {
+    font-size: 11px;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+}
+
+@media (max-width: 420px) {
+  .container {
+    padding: 8px;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+
+  .data-table td,
+  .stand-table td,
+  .admin-log-table td,
+  .dashboard-closed-table td,
+  .opening-adjustments-table td {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: left;
+  }
+
+  .data-table td::before,
+  .stand-table td::before,
+  .admin-log-table td::before,
+  .dashboard-closed-table td::before,
+  .opening-adjustments-table td::before {
+    flex: none;
+    width: 100%;
+  }
+
+  .data-table input,
+  .data-table select,
+  .data-table textarea,
+  .stand-table input,
+  .stand-table select,
+  .stand-table textarea {
+    max-width: none;
+  }
+
+  .input-edit-wrap,
+  .remaining-cell-wrap {
+    justify-content: stretch;
+  }
+
+  .remaining-cell-wrap .remaining-input {
+    max-width: none;
+  }
+}
