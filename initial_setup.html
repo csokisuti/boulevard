@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boulevard - Kezdő adatok</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Kezdő adatok</h1>
+      <p id="userInfo">Betöltés...</p>
+    </div>
+    <button id="backBtn" class="secondary-btn">Vissza</button>
+  </header>
+
+  <main class="container">
+    <section class="panel warning-panel" id="statusPanel">
+      <h2>Induló állapot</h2>
+      <p id="setupStatus">Betöltés...</p>
+      <p class="muted-cell">Ezt az oldalt az első induláskor érdemes használni. A kezdő készletből egy technikai, lezárt stand készül, amiből az első valódi stand át tudja venni a nyitót.</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Kezdő készlet</h2>
+          <p>Az aktív termékekhez írd be a jelenlegi induló mennyiséget.</p>
+        </div>
+        <div class="button-row">
+          <button id="reloadBtn" class="secondary-dark-btn">Frissítés</button>
+          <button id="saveInitialStockBtn">Kezdő készlet mentése</button>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label for="businessDate">Induló dátum</label>
+          <input id="businessDate" type="date">
+        </div>
+        <div>
+          <label for="setupName">Technikai stand neve</label>
+          <input id="setupName" type="text" value="Induló készlet">
+        </div>
+      </div>
+
+      <div id="message"></div>
+
+      <div class="table-wrapper">
+        <table class="data-table initial-stock-table">
+          <thead>
+            <tr>
+              <th>Termék</th>
+              <th>Kategória</th>
+              <th>Egység</th>
+              <th>Kezdő mennyiség</th>
+              <th>Eladási ár</th>
+            </tr>
+          </thead>
+          <tbody id="stockBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Kezdő tartozások</h2>
+          <p>Meglévő, nyitott tartozások felvitele az indulás előtt.</p>
+        </div>
+        <button id="addDebtRowBtn" class="secondary-dark-btn">+ Sor hozzáadása</button>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table initial-debt-table">
+          <thead>
+            <tr>
+              <th>Név</th>
+              <th>Összeg</th>
+              <th>Megjegyzés</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="debtBody"></tbody>
+        </table>
+      </div>
+
+      <div class="button-row">
+        <button id="saveDebtsBtn">Kezdő tartozások mentése</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { auth, db } from "./firebase.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, writeBatch, serverTimestamp, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { hasPermission, roleLabel } from "./permissions.js";
+
+    const userInfo = document.getElementById("userInfo");
+    const backBtn = document.getElementById("backBtn");
+    const reloadBtn = document.getElementById("reloadBtn");
+    const setupStatus = document.getElementById("setupStatus");
+    const businessDate = document.getElementById("businessDate");
+    const setupName = document.getElementById("setupName");
+    const stockBody = document.getElementById("stockBody");
+    const debtBody = document.getElementById("debtBody");
+    const addDebtRowBtn = document.getElementById("addDebtRowBtn");
+    const saveInitialStockBtn = document.getElementById("saveInitialStockBtn");
+    const saveDebtsBtn = document.getElementById("saveDebtsBtn");
+    const message = document.getElementById("message");
+
+    let currentUser = null;
+    let currentUserData = null;
+    let products = [];
+    let existingShifts = [];
+    let existingInitialShift = null;
+
+    backBtn.addEventListener("click", () => {
+      window.location.href = "dashboard.html";
+    });
+
+    reloadBtn.addEventListener("click", async () => {
+      await loadPageData();
+    });
+
+    addDebtRowBtn.addEventListener("click", () => {
+      addDebtRow();
+    });
+
+    saveInitialStockBtn.addEventListener("click", async () => {
+      await saveInitialStock();
+    });
+
+    saveDebtsBtn.addEventListener("click", async () => {
+      await saveInitialDebts();
+    });
+
+    debtBody.addEventListener("click", event => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      if (button.dataset.action === "remove-debt-row") {
+        button.closest("tr")?.remove();
+      }
+    });
+
+    function getTodayInputDate() {
+      const d = new Date();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function toNumber(value) {
+      const n = Number(String(value ?? "0").replace(/,/g, "."));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function formatMoney(value) {
+      return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
+    }
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    function hasSortOrder(value) {
+      return value !== "" && value !== null && value !== undefined && Number.isFinite(Number(value));
+    }
+
+    function productSortValue(product) {
+      if (hasSortOrder(product.categorySortOrder)) return toNumber(product.categorySortOrder) * 100000 + toNumber(product.sortOrder || 999999);
+      return 999999999;
+    }
+
+    function productCompare(a, b) {
+      const orderCompare = productSortValue(a) - productSortValue(b);
+      if (orderCompare !== 0) return orderCompare;
+      const categoryCompare = String(a.category || "").localeCompare(String(b.category || ""), "hu", { sensitivity: "base" });
+      if (categoryCompare !== 0) return categoryCompare;
+      return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
+    }
+
+    function inputValueForNumber(value) {
+      const n = Number(value || 0);
+      if (Number.isInteger(n)) return String(n);
+      return String(Number(n.toFixed(3))).replace(".", ",");
+    }
+
+    function renderProducts() {
+      stockBody.innerHTML = "";
+
+      if (!products.length) {
+        stockBody.innerHTML = `<tr><td colspan="5">Nincs aktív termék.</td></tr>`;
+        return;
+      }
+
+      products.forEach(product => {
+        const tr = document.createElement("tr");
+        tr.dataset.productId = product.id;
+        tr.innerHTML = `
+          <td data-label="Termék"><strong>${escapeHtml(product.name || "-")}</strong></td>
+          <td data-label="Kategória">${escapeHtml(product.category || "Egyéb")}</td>
+          <td data-label="Egység">${escapeHtml(product.unit || "db")}</td>
+          <td data-label="Kezdő mennyiség"><input class="initial-qty-input" type="text" inputmode="decimal" value="0"></td>
+          <td data-label="Eladási ár">${escapeHtml(formatMoney(product.salePrice || 0))}</td>
+        `;
+        stockBody.appendChild(tr);
+      });
+    }
+
+    function addDebtRow(name = "", amount = "", note = "") {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td data-label="Név"><input class="debt-name-input" type="text" value="${escapeHtml(name)}"></td>
+        <td data-label="Összeg"><input class="debt-amount-input" type="text" inputmode="decimal" value="${escapeHtml(amount)}"></td>
+        <td data-label="Megjegyzés"><input class="debt-note-input" type="text" value="${escapeHtml(note)}"></td>
+        <td data-label=""><button class="danger-small-btn" data-action="remove-debt-row">Törlés</button></td>
+      `;
+      debtBody.appendChild(tr);
+    }
+
+    function updateStatus() {
+      const hasAnyShift = existingShifts.length > 0;
+      const hasOnlyInitial = existingShifts.length === 1 && existingInitialShift;
+
+      if (existingInitialShift) {
+        setupStatus.textContent = `Már van induló készlet stand: ${existingInitialShift.shiftLabel || "Induló készlet"}. Új mentés csak megerősítéssel javasolt.`;
+      } else if (hasAnyShift) {
+        setupStatus.textContent = "Már vannak standok a rendszerben. Induló készletet csak akkor ments, ha biztosan ezt akarod, mert technikai lezárt standként bekerül a lezárt standok közé.";
+      } else {
+        setupStatus.textContent = "Még nincs stand. Most ideális felvinni a kezdő készletet és a meglévő tartozásokat.";
+      }
+
+      if (hasOnlyInitial) {
+        setupStatus.textContent = "Az induló készlet már elkészült, de valódi stand még nincs. Szükség esetén új induló készletet csak óvatosan ments.";
+      }
+    }
+
+    async function loadPageData() {
+      showMessage("");
+      stockBody.innerHTML = `<tr><td colspan="5">Betöltés...</td></tr>`;
+
+      const productsSnap = await getDocs(collection(db, "products"));
+      products = [];
+      productsSnap.forEach(item => {
+        const data = { id: item.id, ...item.data() };
+        if (data.active !== false) products.push(data);
+      });
+      products.sort(productCompare);
+
+      const shiftsSnap = await getDocs(query(collection(db, "shifts"), orderBy("createdAt", "desc"), limit(20)));
+      existingShifts = [];
+      existingInitialShift = null;
+      shiftsSnap.forEach(item => {
+        const data = { id: item.id, ...item.data() };
+        existingShifts.push(data);
+        if (data.type === "initial_stock") existingInitialShift = data;
+      });
+
+      renderProducts();
+      updateStatus();
+
+      if (!debtBody.children.length) addDebtRow();
+    }
+
+    async function updateCatalogVersion(batch) {
+      batch.set(doc(db, "settings", "catalog"), {
+        version: Date.now(),
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+    }
+
+    function collectInitialItems() {
+      const items = [];
+      stockBody.querySelectorAll("tr[data-product-id]").forEach(row => {
+        const product = products.find(item => item.id === row.dataset.productId);
+        if (!product) return;
+        const quantity = toNumber(row.querySelector(".initial-qty-input")?.value || 0);
+
+        items.push({
+          product,
+          quantity
+        });
+      });
+      return items;
+    }
+
+    async function saveInitialStock() {
+      if (!hasPermission(currentUserData, "canManageUsers")) {
+        showMessage("Nincs jogosultságod kezdő készlet mentéséhez.", true);
+        return;
+      }
+
+      const date = businessDate.value || getTodayInputDate();
+      const cleanName = setupName.value.trim() || "Induló készlet";
+      const items = collectInitialItems();
+
+      if (!items.length) {
+        showMessage("Nincs menthető termék.", true);
+        return;
+      }
+
+      const hasAnyShift = existingShifts.length > 0;
+      const confirmText = hasAnyShift
+        ? "Már van stand a rendszerben. Biztosan létrehozol egy új technikai induló készlet standot?"
+        : "Biztosan létrehozod az induló készlet standot?";
+
+      if (!confirm(confirmText)) return;
+
+      const batch = writeBatch(db);
+      const shiftRef = doc(collection(db, "shifts"));
+      const label = `${date} - ${cleanName}`;
+
+      batch.set(shiftRef, {
+        type: "initial_stock",
+        status: "closed",
+        businessDate: date,
+        businessDateStart: date,
+        businessDateEnd: date,
+        businessDateLabel: date,
+        shiftLabel: label,
+        assignedUserId: currentUser.uid,
+        assignedUserName: cleanName,
+        openedBy: currentUser.uid,
+        openedByName: currentUserData.name,
+        closedBy: currentUser.uid,
+        closedByName: currentUserData.name,
+        openedAt: serverTimestamp(),
+        closedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        createdBy: currentUser.uid,
+        createdByName: currentUserData.name,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name,
+        totalProductSales: 0,
+        totalCardPayment: 0,
+        totalLottoTurnover: 0,
+        totalRepi: 0,
+        totalMoneyIncome: 0,
+        totalMoneyExpense: 0,
+        totalDebtCreated: 0,
+        totalDebtPaid: 0,
+        totalPreviousHandover: 0,
+        totalCashExpected: 0,
+        handoverAmount: 0
+      });
+
+      items.forEach(entry => {
+        const product = entry.product;
+        const itemRef = doc(db, "shifts", shiftRef.id, "items", product.id);
+        batch.set(itemRef, {
+          productId: product.id,
+          productNameAtShift: product.name || "",
+          categoryAtShift: product.category || "Egyéb",
+          unitAtShift: product.unit || "db",
+          salePriceAtShift: toNumber(product.salePrice),
+          purchasePriceAtShift: toNumber(product.purchasePrice),
+          openingAuto: 0,
+          openingFinal: 0,
+          receivedIn: 0,
+          receivedOut: 0,
+          received: 0,
+          receivedNote: "",
+          remaining: inputValueForNumber(entry.quantity),
+          categorySortOrderAtShift: product.categorySortOrder || 999999,
+          sortOrderAtShift: product.sortOrder || 999999,
+          createdAt: serverTimestamp(),
+          createdBy: currentUser.uid,
+          createdByName: currentUserData.name,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        });
+      });
+
+      batch.set(doc(collection(db, "logs")), {
+        action: "initial_stock_created",
+        details: {
+          shiftId: shiftRef.id,
+          shiftLabel: label,
+          businessDate: date,
+          itemCount: items.length,
+          totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0)
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp(),
+        reviewed: true,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name
+      });
+
+      await updateCatalogVersion(batch);
+      await batch.commit();
+
+      showMessage("Kezdő készlet mentve. Létrejött egy lezárt technikai induló stand.");
+      await loadPageData();
+    }
+
+    function collectDebtRows() {
+      const rows = [];
+      debtBody.querySelectorAll("tr").forEach(row => {
+        const name = row.querySelector(".debt-name-input")?.value.trim() || "";
+        const amount = toNumber(row.querySelector(".debt-amount-input")?.value || 0);
+        const note = row.querySelector(".debt-note-input")?.value.trim() || "";
+
+        if (!name && amount <= 0 && !note) return;
+        rows.push({ name, amount, note });
+      });
+      return rows;
+    }
+
+    async function saveInitialDebts() {
+      if (!hasPermission(currentUserData, "canManageUsers")) {
+        showMessage("Nincs jogosultságod kezdő tartozás mentéséhez.", true);
+        return;
+      }
+
+      const rows = collectDebtRows();
+
+      if (!rows.length) {
+        showMessage("Nincs menthető tartozás.", true);
+        return;
+      }
+
+      const invalid = rows.find(row => !row.name || row.amount <= 0);
+      if (invalid) {
+        showMessage("Minden tartozásnál kötelező a név és a nullánál nagyobb összeg.", true);
+        return;
+      }
+
+      if (!confirm(`${rows.length} kezdő tartozás mentése?`)) return;
+
+      const batch = writeBatch(db);
+
+      rows.forEach(row => {
+        const debtRef = doc(collection(db, "debts"));
+        batch.set(debtRef, {
+          name: row.name,
+          originalAmount: row.amount,
+          paidAmount: 0,
+          remainingAmount: row.amount,
+          status: "open",
+          note: row.note,
+          createdFrom: "initial_setup",
+          createdShiftId: "",
+          createdShiftLabel: "Induló tartozás",
+          createdAt: serverTimestamp(),
+          createdBy: currentUser.uid,
+          createdByName: currentUserData.name,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        });
+      });
+
+      batch.set(doc(collection(db, "logs")), {
+        action: "initial_debts_created",
+        details: {
+          count: rows.length,
+          totalAmount: rows.reduce((sum, row) => sum + row.amount, 0)
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp(),
+        reviewed: true,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.uid,
+        reviewedByName: currentUserData.name
+      });
+
+      await batch.commit();
+
+      debtBody.innerHTML = "";
+      addDebtRow();
+      showMessage("Kezdő tartozások mentve.");
+    }
+
+    function applyResponsiveTableLabels(root = document) {
+      root.querySelectorAll("table").forEach(table => {
+        const headers = [...table.querySelectorAll("thead th")].map(th => th.textContent.trim());
+        table.querySelectorAll("tbody tr").forEach(row => {
+          [...row.children].forEach((cell, index) => {
+            if (!cell.hasAttribute("data-label")) cell.setAttribute("data-label", headers[index] || "");
+          });
+        });
+      });
+    }
+
+    const responsiveObserver = new MutationObserver(() => applyResponsiveTableLabels());
+    responsiveObserver.observe(document.body, { childList: true, subtree: true });
+
+    onAuthStateChanged(auth, async user => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+
+      currentUser = user;
+      const userSnap = await getDoc(doc(db, "users", user.uid));
+
+      if (!userSnap.exists()) {
+        userInfo.textContent = "Nincs felhasználói adat.";
+        return;
+      }
+
+      currentUserData = userSnap.data();
+
+      if (!currentUserData.active) {
+        userInfo.textContent = "Ez a felhasználó inaktív.";
+        return;
+      }
+
+      if (!hasPermission(currentUserData, "canManageUsers")) {
+        userInfo.textContent = "Nincs jogosultság.";
+        setupStatus.textContent = "Nincs jogosultság a kezdő adatok kezeléséhez.";
+        stockBody.innerHTML = `<tr><td colspan="5">Nincs jogosultság.</td></tr>`;
+        saveInitialStockBtn.style.display = "none";
+        saveDebtsBtn.style.display = "none";
+        addDebtRowBtn.style.display = "none";
+        return;
+      }
+
+      userInfo.textContent = `${currentUserData.name || currentUser.email} - ${roleLabel(currentUserData.role)}`;
+      businessDate.value = getTodayInputDate();
+
+      try {
+        await loadPageData();
+        applyResponsiveTableLabels();
+      } catch (error) {
+        console.error(error);
+        showMessage("Nem sikerült betölteni a kezdő adatokat.", true);
+      }
+    });
+  </script>
+</body>
+</html>

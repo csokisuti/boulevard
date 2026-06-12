@@ -237,6 +237,7 @@
       if (hasPermission(userData, "canViewReports")) {
         addMenuItem("Riportok", "Árrés, fogyás, dolgozói teljesítmény", "reports.html");
         addMenuItem("Nyitó eltérések", "Hiányok, többletek, stand pontosság", "opening_adjustments.html");
+        if (hasPermission(userData, "canManageUsers")) addMenuItem("Kezdő adatok", "Induló készlet és meglévő tartozások", "initial_setup.html");
       }
 
       if (hasPermission(userData, "canManageUsers")) {
