@@ -494,6 +494,24 @@
     let moneyMovements = [];
     let openDebts = [];
     let collapsedCategories = {};
+    let mobileCardMode = false;
+
+    function isMobileCardMode() {
+      return window.matchMedia("(max-width: 760px)").matches;
+    }
+
+    function updateMobileCardMode() {
+      const nextMode = isMobileCardMode();
+      const changed = nextMode !== mobileCardMode;
+      mobileCardMode = nextMode;
+
+      if (!standMobileCards) return;
+      if (!mobileCardMode) {
+        standMobileCards.innerHTML = "";
+      } else if (changed && rows.length) {
+        renderMobileCards();
+      }
+    }
     let closedShiftEditAllowed = false;
 
     backBtn.addEventListener("click", () => {
@@ -1795,6 +1813,10 @@
 
     function renderMobileCards() {
       if (!standMobileCards) return;
+      if (!mobileCardMode) {
+        standMobileCards.innerHTML = "";
+        return;
+      }
 
       const search = searchInput.value.trim().toLowerCase();
       standMobileCards.innerHTML = "";
@@ -1944,7 +1966,7 @@
 
       updateTotalSales();
       updateCategorySummaries();
-      renderMobileCards();
+      if (mobileCardMode) renderMobileCards();
       renderFinance();
     }
 
@@ -3059,6 +3081,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       quickProductDetails.open = false;
 
       showMessage("Új termék felvéve és hozzáadva az aktuális standhoz.");
+      updateMobileCardMode();
       await loadPage();
     }
 
@@ -3220,7 +3243,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       if (field === "receivedNote") return;
 
       if (tr) updateRowDisplay(tr, rows[index]);
-      renderMobileCards();
+      if (mobileCardMode) renderMobileCards();
     }
 
     standBody.addEventListener("input", handleStandInput);
@@ -3322,7 +3345,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         input.select();
       }
 
-      renderMobileCards();
+      if (mobileCardMode) renderMobileCards();
     }
 
     standBody.addEventListener("click", handleStandClick);
@@ -3367,6 +3390,10 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
     addCardPaymentBtn.addEventListener("click", addCardPayment);
     addLottoTurnoverBtn.addEventListener("click", addLottoTurnover);
     addRepiBtn.addEventListener("click", addRepi);
+
+    window.addEventListener("resize", () => {
+      updateMobileCardMode();
+    });
 
     function setDefaultFinanceDates() {
       const value = shiftStartDateValue(currentShift) || getTodayInputDate();
@@ -3535,22 +3562,6 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       userInfo.textContent = `${currentUserData.name} - ${roleLabel(currentUserData.role)}`;
       await loadPage();
     });
-
-    function applyResponsiveTableLabels(root = document) {
-      root.querySelectorAll("table").forEach(table => {
-        const headers = [...table.querySelectorAll("thead th")].map(th => th.textContent.trim());
-        table.querySelectorAll("tbody tr").forEach(row => {
-          if (row.classList.contains("category-row") || row.classList.contains("review-separator-row") || row.classList.contains("print-category-row")) return;
-          [...row.children].forEach((cell, index) => {
-            if (!cell.hasAttribute("data-label")) cell.setAttribute("data-label", headers[index] || "");
-          });
-        });
-      });
-    }
-
-    const responsiveObserver = new MutationObserver(() => applyResponsiveTableLabels());
-    responsiveObserver.observe(document.body, { childList: true, subtree: true });
-    applyResponsiveTableLabels();
 
   </script>
 </body>

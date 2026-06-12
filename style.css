@@ -1664,3 +1664,30 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+/* stand tablet fast fix */
+
+
+@media (min-width: 761px) {
+  #standTablePanel .table-wrapper {
+    display: block !important;
+  }
+
+  .stand-table {
+    display: table !important;
+  }
+
+  .stand-mobile-cards {
+    display: none !important;
+  }
+}
+
+@media (max-width: 760px) {
+  #standTablePanel .table-wrapper {
+    display: none !important;
+  }
+
+  .stand-mobile-cards {
+    display: block !important;
+  }
+}
