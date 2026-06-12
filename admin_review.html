@@ -36,6 +36,26 @@
       </div>
     </section>
 
+    <section class="panel admin-tools-panel">
+      <div class="section-header">
+        <div>
+          <h2>További admin eszközök</h2>
+          <p class="muted-cell">A dashboard helyett innen is elérhetők a kapcsolódó admin funkciók.</p>
+        </div>
+      </div>
+
+      <div class="admin-tools-grid">
+        <a class="menu-card" href="opening_adjustments.html">
+          <h3>Nyitó eltérések</h3>
+          <p>Nyitó korrekciók, hiányok és többletek dolgozónként, tételes riporttal.</p>
+        </a>
+        <a class="menu-card" href="initial_setup.html">
+          <h3>Kezdő adatok</h3>
+          <p>Induló készlet és meglévő tartozások technikai feltöltése.</p>
+        </a>
+      </div>
+    </section>
+
     <details class="panel collapsible-panel" open>
       <summary>Ellenőrizendő termékek (<span id="productCardCount">0</span>)</summary>
       <p class="muted-cell">Dolgozó által felvitt vagy módosított termékek, amelyeket adminnak érdemes jóváhagyni.</p>
@@ -95,6 +115,8 @@
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
     const refreshBtn = document.getElementById("refreshBtn");
+    const adminToolsPanel = document.querySelector(".admin-tools-panel");
+    const adminToolsGrid = document.querySelector(".admin-tools-grid");
     const reviewInfo = document.getElementById("reviewInfo");
     const message = document.getElementById("message");
     const summaryProducts = document.getElementById("summaryProducts");
@@ -687,6 +709,18 @@
         return;
       }
       userInfo.textContent = `${currentUserData.name || currentUser.email} - ${roleLabel(currentUserData.role)}`;
+
+      if (adminToolsGrid) {
+        const links = [];
+        if (hasPermission(currentUserData, "canViewReports") || hasPermission(currentUserData, "canViewLogs")) {
+          links.push(`<a class="menu-card" href="opening_adjustments.html"><h3>Nyitó eltérések</h3><p>Nyitó korrekciók, hiányok és többletek dolgozónként, tételes riporttal.</p></a>`);
+        }
+        if (hasPermission(currentUserData, "canManageUsers")) {
+          links.push(`<a class="menu-card" href="initial_setup.html"><h3>Kezdő adatok</h3><p>Induló készlet és meglévő tartozások technikai feltöltése.</p></a>`);
+        }
+        adminToolsGrid.innerHTML = links.join("");
+        if (!links.length && adminToolsPanel) adminToolsPanel.style.display = "none";
+      }
       await loadPageData();
     });
 
