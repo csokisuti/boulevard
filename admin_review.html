@@ -314,7 +314,7 @@
 
       if (log.action === "closed_shift_finance_modified") {
         return [
-          detailLine("Stand", escapeHtml(details.shiftLabel || "-")),
+          detailLine("Stand", escapeHtml(details.shiftLabel || details.shiftId || "-")),
           detailLine("Dátum", escapeHtml(details.businessDateLabel || (details.businessDate ? formatBusinessDate(details.businessDate) : "-"))),
           detailLine("Típus", escapeHtml(actionLabel(log.action))),
           detailLine("Pénzmozgás", `${escapeHtml(details.type || "-")} | ${escapeHtml(formatMoney(details.amount || 0))}`),
@@ -340,6 +340,7 @@
       const details = log.details || {};
       return [
         detailLine("Stand", escapeHtml(details.shiftLabel || "-")),
+        detailLine("Dátum", escapeHtml(details.businessDateLabel || (details.businessDate ? formatBusinessDate(details.businessDate) : "-"))),
         detailLine("Termék", escapeHtml(details.productName || "-")),
         detailLine("Automata nyitó", escapeHtml(String(details.openingAuto ?? "-"))),
         detailLine("Módosított nyitó", escapeHtml(String(details.openingFinal ?? "-"))),

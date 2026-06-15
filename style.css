@@ -1691,3 +1691,38 @@ button:disabled {
     display: block !important;
   }
 }
+
+
+.stand-note-box {
+  margin-top: 16px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.stand-note-box textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 86px;
+}
+
+.dashboard-stand-note-panel {
+  border-left: 6px solid #f59e0b;
+  background: #fffbeb;
+}
+
+.dashboard-stand-note-panel p {
+  font-size: 16px;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.action-cell {
+  min-width: 130px;
+}
+
+.action-cell button {
+  margin: 2px;
+}

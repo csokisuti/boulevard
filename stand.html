@@ -67,6 +67,12 @@
         <button id="applyProductUpdatesBtn">Frissítés alkalmazása a nyitott standra</button>
       </div>
 
+      <div class="stand-note-box" id="standNoteBox" style="display:none;">
+        <label for="standNoteInput">Stand megjegyzés</label>
+        <textarea id="standNoteInput" rows="3" placeholder="Pl. hiány, átadás, fontos információ a következő standig"></textarea>
+        <p class="muted-cell">Ez a megjegyzés a dashboardon látszik addig, amíg a következő stand le nem lesz zárva.</p>
+      </div>
+
       <div id="message"></div>
     </section>
 
@@ -285,6 +291,7 @@
                   <th>Összeg</th>
                   <th>Hatás</th>
                   <th>Rögzítette</th>
+                  <th>Művelet</th>
                 </tr>
               </thead>
               <tbody id="cardPaymentsBody"></tbody>
@@ -326,6 +333,7 @@
                   <th>Hatás</th>
                   <th>Megjegyzés</th>
                   <th>Rögzítette</th>
+                  <th>Művelet</th>
                 </tr>
               </thead>
               <tbody id="lottoTurnoverBody"></tbody>
@@ -367,6 +375,7 @@
                   <th>Hatás</th>
                   <th>Megjegyzés</th>
                   <th>Rögzítette</th>
+                  <th>Művelet</th>
                 </tr>
               </thead>
               <tbody id="repiBody"></tbody>
@@ -390,6 +399,7 @@
                 <th>Egyenleg</th>
                 <th>Megjegyzés</th>
                 <th>Rögzítette</th>
+                <th>Művelet</th>
               </tr>
             </thead>
             <tbody id="moneyMovementsBody"></tbody>
@@ -408,7 +418,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, serverTimestamp, query, where, limit, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -431,6 +441,8 @@
     const openShiftBtn = document.getElementById("openShiftBtn");
     const productSyncPanel = document.getElementById("productSyncPanel");
     const productSyncText = document.getElementById("productSyncText");
+    const standNoteBox = document.getElementById("standNoteBox");
+    const standNoteInput = document.getElementById("standNoteInput");
     const applyProductUpdatesBtn = document.getElementById("applyProductUpdatesBtn");
     const quickProductDetails = document.getElementById("quickProductDetails");
     const quickName = document.getElementById("quickName");
@@ -808,6 +820,34 @@
       return type || "-";
     }
 
+    function editableMoneyMovementTypes() {
+      return ["card_payment", "lotto_turnover", "repi", "income", "expense"];
+    }
+
+    function canEditMoneyMovement(item) {
+      return !!item && !!item.id && canEditFinanceCurrentShift() && editableMoneyMovementTypes().includes(item.type);
+    }
+
+    function moneyActionButtons(item) {
+      if (!canEditMoneyMovement(item)) return `<span class="muted-cell">—</span>`;
+      return `
+        <button class="small-btn secondary-inline-btn" data-action="edit-money-movement" data-id="${escapeHtml(item.id)}">Javítás</button>
+        <button class="danger-small-btn" data-action="delete-money-movement" data-id="${escapeHtml(item.id)}">Törlés</button>
+      `;
+    }
+
+    function promptNumber(label, currentValue) {
+      const value = prompt(label, String(currentValue ?? ""));
+      if (value === null) return null;
+      return toNumber(value);
+    }
+
+    function promptText(label, currentValue) {
+      const value = prompt(label, String(currentValue ?? ""));
+      if (value === null) return null;
+      return value.trim();
+    }
+
     function calc(row) {
       const opening = toNumber(row.openingFinal);
       const receivedIn = receivedInValue(row);
@@ -1070,7 +1110,12 @@
         if (data.status !== "paid") openDebts.push({ id: item.id, ...data });
       });
 
-      openDebts.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      openDebts.sort((a, b) => {
+        const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+        const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+        if (aTime !== bTime) return aTime - bTime;
+        return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
+      });
       renderDebtSelect();
       renderOpenDebts();
     }
@@ -1509,7 +1554,7 @@
       cardPaymentsBody.innerHTML = "";
 
       if (!list.length) {
-        cardPaymentsBody.innerHTML = `<tr><td colspan="4">Nincs rögzített bankkártya összeg.</td></tr>`;
+        cardPaymentsBody.innerHTML = `<tr><td colspan="5">Nincs rögzített bankkártya összeg.</td></tr>`;
         return;
       }
 
@@ -1523,6 +1568,7 @@
           <td>${formatMoney(amount)}</td>
           <td class="negative-text">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
           <td>${escapeHtml(item.createdByName || "")}</td>
+          <td class="action-cell">${moneyActionButtons(item)}</td>
         `;
 
         cardPaymentsBody.appendChild(tr);
@@ -1534,7 +1580,7 @@
       lottoTurnoverBody.innerHTML = "";
 
       if (!list.length) {
-        lottoTurnoverBody.innerHTML = `<tr><td colspan="5">Nincs rögzített lottó forgalom.</td></tr>`;
+        lottoTurnoverBody.innerHTML = `<tr><td colspan="6">Nincs rögzített lottó forgalom.</td></tr>`;
         return;
       }
 
@@ -1549,6 +1595,7 @@
           <td class="${effect >= 0 ? "positive-text" : "negative-text"}">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
           <td>${escapeHtml(item.note || "")}</td>
           <td>${escapeHtml(item.createdByName || "")}</td>
+          <td class="action-cell">${moneyActionButtons(item)}</td>
         `;
 
         lottoTurnoverBody.appendChild(tr);
@@ -1560,7 +1607,7 @@
       repiBody.innerHTML = "";
 
       if (!list.length) {
-        repiBody.innerHTML = `<tr><td colspan="5">Nincs rögzített repi fogyasztás.</td></tr>`;
+        repiBody.innerHTML = `<tr><td colspan="6">Nincs rögzített repi fogyasztás.</td></tr>`;
         return;
       }
 
@@ -1575,6 +1622,7 @@
           <td class="negative-text">${effect >= 0 ? "+" : "-"}${formatMoney(Math.abs(effect))}</td>
           <td>${escapeHtml(item.note || "")}</td>
           <td>${escapeHtml(item.createdByName || "")}</td>
+          <td class="action-cell">${moneyActionButtons(item)}</td>
         `;
 
         repiBody.appendChild(tr);
@@ -1634,7 +1682,7 @@
       moneyMovementsBody.innerHTML = "";
 
       if (!display.length) {
-        moneyMovementsBody.innerHTML = `<tr><td colspan="8">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
+        moneyMovementsBody.innerHTML = `<tr><td colspan="9">Nincs rögzített pénzmozgás ehhez a standhoz.</td></tr>`;
         return;
       }
 
@@ -1655,6 +1703,7 @@
           <td><strong>${formatMoney(runningBalance)}</strong></td>
           <td>${escapeHtml(item.note || "")}</td>
           <td>${escapeHtml(item.createdByName || "")}</td>
+          <td class="action-cell">${moneyActionButtons(item)}</td>
         `;
 
         moneyMovementsBody.appendChild(tr);
@@ -2235,6 +2284,7 @@
         totalSalesValue,
         totalPurchaseValue,
         totalMarginValue,
+        standNote: standNoteInput.value.trim(),
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
@@ -2350,6 +2400,7 @@
         totalSalesValue,
         totalPurchaseValue,
         totalMarginValue,
+        standNote: standNoteInput.value.trim(),
         totalMoneyIncome: financials.income,
         totalMoneyExpense: financials.expense,
         totalDebtCreated: financials.debtCreated,
@@ -2373,6 +2424,9 @@
             action: "opening_changed",
             details: {
               shiftId: currentShift.id,
+              shiftLabel: currentShift.shiftLabel || "",
+              businessDate: currentShift.businessDate || "",
+              businessDateLabel: currentShift.businessDateLabel || "",
               productId: row.productId,
               productName: row.productNameAtShift,
               openingAuto: toNumber(row.openingAuto),
@@ -2978,6 +3032,132 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       await refreshMoneyAfterSave("Pénzmozgás mentve.");
     }
 
+    async function editMoneyMovement(movementId) {
+      const item = moneyMovements.find(entry => entry.id === movementId);
+
+      if (!canEditMoneyMovement(item)) {
+        showMessage("Ezt a pénzmozgást nem lehet innen módosítani.", true);
+        return;
+      }
+
+      const newAmount = promptNumber(`${movementTypeLabel(item.type)} új összege`, toNumber(item.amount));
+      if (newAmount === null) return;
+
+      if (newAmount <= 0) {
+        showMessage("Az összegnek nagyobbnak kell lennie nullánál.", true);
+        return;
+      }
+
+      let newDate = item.movementDate || "";
+      let newPerson = item.personName || "";
+      let newNote = item.note || "";
+
+      if (item.type === "card_payment" || item.type === "lotto_turnover" || item.type === "income" || item.type === "expense") {
+        const datePrompt = promptText("Nap / dátum YYYY-MM-DD formátumban", newDate || shiftStartDateValue(currentShift) || getTodayInputDate());
+        if (datePrompt === null) return;
+        newDate = datePrompt;
+      }
+
+      if (item.type === "repi" || item.type === "income" || item.type === "expense") {
+        const personPrompt = promptText("Név / partner", newPerson);
+        if (personPrompt === null) return;
+        newPerson = personPrompt;
+      }
+
+      if (item.type === "lotto_turnover" || item.type === "repi" || item.type === "income" || item.type === "expense") {
+        const notePrompt = promptText("Megjegyzés", newNote);
+        if (notePrompt === null) return;
+        newNote = notePrompt;
+      }
+
+      const before = {
+        type: item.type,
+        amount: toNumber(item.amount),
+        movementDate: item.movementDate || "",
+        personName: item.personName || "",
+        note: item.note || ""
+      };
+
+      const after = {
+        type: item.type,
+        amount: newAmount,
+        movementDate: newDate,
+        personName: item.type === "card_payment" ? "Bankkártya" : (item.type === "lotto_turnover" ? "Lottó" : newPerson),
+        note: item.type === "card_payment" ? "" : newNote
+      };
+
+      const batch = writeBatch(db);
+      batch.set(doc(db, "shifts", currentShift.id, "moneyMovements", movementId), {
+        amount: after.amount,
+        movementDate: after.movementDate,
+        personName: after.personName,
+        note: after.note,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      batch.set(doc(collection(db, "logs")), {
+        action: isClosedShift() ? "closed_shift_finance_modified" : "money_movement_updated",
+        details: {
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          businessDate: currentShift.businessDate || "",
+          businessDateLabel: currentShift.businessDateLabel || "",
+          movementId,
+          before,
+          after
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+      await refreshMoneyAfterSave("Pénzmozgás javítva, a leadó újraszámolva.");
+    }
+
+    async function deleteMoneyMovement(movementId) {
+      const item = moneyMovements.find(entry => entry.id === movementId);
+
+      if (!canEditMoneyMovement(item)) {
+        showMessage("Ezt a pénzmozgást nem lehet innen törölni.", true);
+        return;
+      }
+
+      if (!confirm(`Biztosan törlöd ezt a tételt?\n${movementTypeLabel(item.type)} - ${formatMoney(item.amount)}`)) return;
+
+      const before = {
+        type: item.type,
+        amount: toNumber(item.amount),
+        movementDate: item.movementDate || "",
+        personName: item.personName || "",
+        note: item.note || ""
+      };
+
+      const batch = writeBatch(db);
+      batch.delete(doc(db, "shifts", currentShift.id, "moneyMovements", movementId));
+      batch.set(doc(collection(db, "logs")), {
+        action: isClosedShift() ? "closed_shift_finance_modified" : "money_movement_deleted",
+        details: {
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          businessDate: currentShift.businessDate || "",
+          businessDateLabel: currentShift.businessDateLabel || "",
+          movementId,
+          before
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+      await refreshMoneyAfterSave("Pénzmozgás törölve, a leadó újraszámolva.");
+    }
+
     async function quickAddProduct() {
       if (!can("canCreateProductFromStand")) {
         showMessage("Nincs jogosultságod új termék standból történő felviteléhez.", true);
@@ -3391,6 +3571,15 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
     addLottoTurnoverBtn.addEventListener("click", addLottoTurnover);
     addRepiBtn.addEventListener("click", addRepi);
 
+    [cardPaymentsBody, lottoTurnoverBody, repiBody, moneyMovementsBody].forEach(target => {
+      target.addEventListener("click", async event => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        if (button.dataset.action === "edit-money-movement") await editMoneyMovement(button.dataset.id);
+        if (button.dataset.action === "delete-money-movement") await deleteMoneyMovement(button.dataset.id);
+      });
+    });
+
     window.addEventListener("resize", () => {
       updateMobileCardMode();
     });
@@ -3414,6 +3603,9 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       quickProductDetails.style.display = isOpenShift() && canModifyCurrentShift() && can("canCreateProductFromStand") ? "" : "none";
       quickPurchasePriceBox.style.display = can("canEditPurchasePrice") ? "" : "none";
       financeFormBox.style.display = canEditFinanceCurrentShift() ? "" : "none";
+      standNoteBox.style.display = currentShift ? "" : "none";
+      standNoteInput.value = currentShift.standNote || "";
+      standNoteInput.disabled = !canModifyCurrentShift();
       setDefaultFinanceDates();
 
       if (isClosedShift()) {
@@ -3452,6 +3644,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       standActions.style.display = "none";
       financeDetails.style.display = "";
       financeFormBox.style.display = "none";
+      standNoteBox.style.display = "none";
       quickProductDetails.style.display = "none";
       productSyncPanel.style.display = "none";
       standBody.innerHTML = "";

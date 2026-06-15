@@ -21,6 +21,11 @@
       <div id="menu" class="menu-grid"></div>
     </section>
 
+    <section class="panel dashboard-stand-note-panel" id="dashboardStandNotePanel" style="display:none;">
+      <h2>Stand megjegyzés</h2>
+      <p id="dashboardStandNoteText"></p>
+    </section>
+
     <section class="panel">
       <div class="section-header">
         <div>
@@ -61,6 +66,8 @@
     const closedShiftsBody = document.getElementById("closedShiftsBody");
     const closedShiftsMessage = document.getElementById("closedShiftsMessage");
     const refreshClosedShiftsBtn = document.getElementById("refreshClosedShiftsBtn");
+    const dashboardStandNotePanel = document.getElementById("dashboardStandNotePanel");
+    const dashboardStandNoteText = document.getElementById("dashboardStandNoteText");
 
     let currentUser = null;
     let currentUserData = null;
@@ -167,8 +174,18 @@
 
         if (!shifts.length) {
           closedShiftsMessage.textContent = "Még nincs lezárt stand.";
+          dashboardStandNotePanel.style.display = "none";
           closedShiftsBody.innerHTML = `<tr><td colspan="7">Nincs lezárt stand.</td></tr>`;
           return;
+        }
+
+        const latestNote = String(shifts[0]?.standNote || "").trim();
+        if (latestNote) {
+          dashboardStandNotePanel.style.display = "";
+          dashboardStandNoteText.textContent = `${shiftDateLabel(shifts[0])} | ${shifts[0].assignedUserName || shifts[0].closedByName || "-"}: ${latestNote}`;
+        } else {
+          dashboardStandNotePanel.style.display = "none";
+          dashboardStandNoteText.textContent = "";
         }
 
         closedShiftsMessage.textContent = `Utolsó ${shifts.length} lezárt stand`;
