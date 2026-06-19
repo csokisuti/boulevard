@@ -86,6 +86,56 @@
         </table>
       </div>
     </section>
+
+    <section class="panel">
+      <h2>Lottó forgalom dátum szerint</h2>
+      <p class="muted-cell">Ez nem a stand dátuma alapján számol, hanem a lottó tétel saját napja alapján. Így a vasárnap-hétfő stand sem csúsztatja el a heti lottóösszesítést.</p>
+
+      <div class="finance-summary-grid admin-review-summary-grid">
+        <div class="finance-card positive">
+          <span>Lottó tételek száma</span>
+          <strong id="lottoItemCount">0</strong>
+        </div>
+        <div class="finance-card positive">
+          <span>Lottóforgalom dátum szerint</span>
+          <strong id="lottoDateTotal">0 Ft</strong>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="data-table reports-table">
+          <thead>
+            <tr>
+              <th>Nap</th>
+              <th>Stand</th>
+              <th>Összeg</th>
+              <th>Megjegyzés</th>
+              <th>Rögzítette</th>
+            </tr>
+          </thead>
+          <tbody id="lottoDateBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Heti lottó bontás</h2>
+      <p class="muted-cell">A kiválasztott dátumtartományba eső lottó tételek heti összesítése.</p>
+
+      <div class="table-wrapper">
+        <table class="data-table reports-table">
+          <thead>
+            <tr>
+              <th>Hét</th>
+              <th>Időszak</th>
+              <th>Lottóforgalom</th>
+            </tr>
+          </thead>
+          <tbody id="lottoWeekBody"></tbody>
+        </table>
+      </div>
+    </section>
+
   </main>
 
   <script type="module">
@@ -108,10 +158,15 @@
     const selectedCount = document.getElementById("selectedCount");
     const selectedSales = document.getElementById("selectedSales");
     const selectedLotto = document.getElementById("selectedLotto");
+    const lottoItemCount = document.getElementById("lottoItemCount");
+    const lottoDateTotal = document.getElementById("lottoDateTotal");
+    const lottoDateBody = document.getElementById("lottoDateBody");
+    const lottoWeekBody = document.getElementById("lottoWeekBody");
 
     let currentUser = null;
     let currentUserData = null;
     let shifts = [];
+    let lottoItems = [];
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
@@ -188,6 +243,44 @@
       return shift?.businessDateLabel || formatBusinessDateRange(shiftStartDateValue(shift), shiftEndDateValue(shift));
     }
 
+    function dateToMonday(value) {
+      const date = new Date(`${value}T00:00:00`);
+      const day = date.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      date.setDate(date.getDate() + diff);
+      return date;
+    }
+
+    function addDays(date, days) {
+      const copy = new Date(date);
+      copy.setDate(copy.getDate() + days);
+      return copy;
+    }
+
+    function dateInputFromDate(date) {
+      return date.toISOString().slice(0, 10);
+    }
+
+    function isoWeekNumber(value) {
+      const date = new Date(`${value}T00:00:00`);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+      const week1 = new Date(date.getFullYear(), 0, 4);
+      return 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+    }
+
+    function weekKey(value) {
+      const monday = dateToMonday(value);
+      const sunday = addDays(monday, 6);
+      const year = monday.getFullYear();
+      const week = String(isoWeekNumber(value)).padStart(2, "0");
+      return {
+        key: `${year}-${week}`,
+        label: `${year}. ${Number(week)}. hét`,
+        range: `${formatBusinessDate(dateInputFromDate(monday))} - ${formatBusinessDate(dateInputFromDate(sunday))}`
+      };
+    }
+
     function setDefaultDates() {
       const today = new Date();
       const to = today.toISOString().slice(0, 10);
@@ -240,6 +333,7 @@
 
         renderShifts();
         updateSelectedSummary();
+        await loadLottoItems();
         reportInfo.textContent = `${dateFrom.value || "-"} - ${dateTo.value || "-"} közötti lezárt standok`;
       } catch (error) {
         console.error(error);
@@ -272,6 +366,104 @@
           <td data-label="PDF"><a class="small-link-btn print-link-btn" href="shift_print.html?shiftId=${encodeURIComponent(shift.id)}" target="_blank">PDF kép</a></td>
         `;
         shiftsBody.appendChild(tr);
+      });
+    }
+
+    async function loadLottoItems() {
+      lottoItems = [];
+      const from = dateFrom.value || "0000-00-00";
+      const to = dateTo.value || "9999-99-99";
+
+      const movementPromises = shifts.map(async shift => {
+        const snap = await getDocs(collection(db, "shifts", shift.id, "moneyMovements"));
+
+        snap.forEach(item => {
+          const data = item.data();
+          if (data.type !== "lotto_turnover") return;
+
+          const movementDate = data.movementDate || shiftStartDateValue(shift);
+          if (!movementDate || movementDate < from || movementDate > to) return;
+
+          lottoItems.push({
+            id: item.id,
+            shiftId: shift.id,
+            shiftLabel: shift.shiftLabel || shiftDateLabel(shift),
+            standName: shift.assignedUserName || shift.closedByName || "-",
+            movementDate,
+            amount: toNumber(data.amount),
+            note: data.note || "",
+            createdByName: data.createdByName || ""
+          });
+        });
+      });
+
+      await Promise.all(movementPromises);
+
+      lottoItems.sort((a, b) => {
+        if (a.movementDate !== b.movementDate) return a.movementDate.localeCompare(b.movementDate);
+        return String(a.standName || "").localeCompare(String(b.standName || ""), "hu", { sensitivity: "base" });
+      });
+
+      renderLottoDateItems();
+      renderLottoWeeks();
+    }
+
+    function renderLottoDateItems() {
+      lottoDateBody.innerHTML = "";
+
+      if (!lottoItems.length) {
+        lottoDateBody.innerHTML = `<tr><td colspan="5">Nincs lottó tétel a kiválasztott dátumtartományban.</td></tr>`;
+        lottoItemCount.textContent = "0";
+        lottoDateTotal.textContent = formatMoney(0);
+        return;
+      }
+
+      const total = lottoItems.reduce((sum, item) => sum + toNumber(item.amount), 0);
+      lottoItemCount.textContent = lottoItems.length;
+      lottoDateTotal.textContent = formatMoney(total);
+
+      lottoItems.forEach(item => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td data-label="Nap">${formatBusinessDate(item.movementDate)}</td>
+          <td data-label="Stand">${escapeHtml(item.shiftLabel || item.standName || "-")}</td>
+          <td data-label="Összeg">${formatMoney(item.amount)}</td>
+          <td data-label="Megjegyzés">${escapeHtml(item.note || "")}</td>
+          <td data-label="Rögzítette">${escapeHtml(item.createdByName || "")}</td>
+        `;
+        lottoDateBody.appendChild(tr);
+      });
+    }
+
+    function renderLottoWeeks() {
+      lottoWeekBody.innerHTML = "";
+
+      if (!lottoItems.length) {
+        lottoWeekBody.innerHTML = `<tr><td colspan="3">Nincs heti bontás.</td></tr>`;
+        return;
+      }
+
+      const map = new Map();
+
+      lottoItems.forEach(item => {
+        const info = weekKey(item.movementDate);
+        if (!map.has(info.key)) {
+          map.set(info.key, {
+            ...info,
+            total: 0
+          });
+        }
+        map.get(info.key).total += toNumber(item.amount);
+      });
+
+      [...map.values()].sort((a, b) => a.key.localeCompare(b.key)).forEach(row => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td data-label="Hét">${escapeHtml(row.label)}</td>
+          <td data-label="Időszak">${escapeHtml(row.range)}</td>
+          <td data-label="Lottóforgalom">${formatMoney(row.total)}</td>
+        `;
+        lottoWeekBody.appendChild(tr);
       });
     }
 
