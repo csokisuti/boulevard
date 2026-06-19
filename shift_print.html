@@ -84,7 +84,8 @@
     </section>
 
     <section class="print-section">
-      <h2>Az adott stand lezárásakor nyitott tartozások</h2>
+      <h2>Az adott stand lezárásakor meglévő tartozások</h2>
+      <p class="muted-cell">Áthúzva csak azok szerepelnek, amelyek ebben a standban lettek rendezve.</p>
       <div class="print-table-wrapper">
         <table class="print-table">
           <thead>
@@ -335,10 +336,24 @@
       return payments;
     }
 
-    async function loadOpenDebtsAtShiftClose(shift) {
+    async function loadDebtPaymentsInShift(shiftId) {
+      const payments = new Map();
+      const movementSnap = await getDocs(collection(db, "shifts", shiftId, "moneyMovements"));
+
+      movementSnap.forEach(movementDoc => {
+        const movement = movementDoc.data();
+        if (movement.type !== "debt_payment" || !movement.debtId) return;
+        payments.set(movement.debtId, (payments.get(movement.debtId) || 0) + toNumber(movement.amount));
+      });
+
+      return payments;
+    }
+
+    async function loadDebtsAtShiftClose(shift) {
       const cutoff = cutoffMillisForShift(shift);
       const debtSnap = await getDocs(collection(db, "debts"));
-      const payments = await loadDebtPaymentsUntil(cutoff);
+      const paymentsUntilClose = await loadDebtPaymentsUntil(cutoff);
+      const paymentsInSelectedShift = await loadDebtPaymentsInShift(shift.id);
       const result = [];
 
       debtSnap.forEach(item => {
@@ -347,21 +362,28 @@
         if (!debtCreatedBeforeCutoff(debt, cutoff, shift.id)) return;
 
         const originalAmount = toNumber(debt.originalAmount);
-        const paidAmount = Math.min(originalAmount, payments.get(debt.id) || 0);
-        const remainingAmount = originalAmount - paidAmount;
+        const paidAmount = Math.min(originalAmount, paymentsUntilClose.get(debt.id) || 0);
+        const remainingAmount = Math.max(0, originalAmount - paidAmount);
+        const paidInThisShift = paymentsInSelectedShift.get(debt.id) || 0;
+        const paidAtClose = remainingAmount <= 0 && originalAmount > 0;
+        const settledInThisShift = paidAtClose && paidInThisShift > 0;
 
-        if (remainingAmount <= 0) return;
+        if (remainingAmount <= 0 && !settledInThisShift) return;
 
         result.push({
           ...debt,
           originalAmount,
           paidAmount,
           remainingAmount,
-          status: paidAmount > 0 ? "partial" : "open"
+          paidInThisShift,
+          status: paidAtClose ? "paid" : (paidAmount > 0 ? "partial" : "open"),
+          paidAtClose,
+          settledInThisShift
         });
       });
 
       result.sort((a, b) => {
+        if (!!a.settledInThisShift !== !!b.settledInThisShift) return a.settledInThisShift ? 1 : -1;
         const aTime = toMillis(a.createdAt);
         const bTime = toMillis(b.createdAt);
         if (aTime !== bTime) return aTime - bTime;
@@ -420,7 +442,7 @@
         return at - bt;
       });
 
-      const openDebts = await loadOpenDebtsAtShiftClose(shift);
+      const openDebts = await loadDebtsAtShiftClose(shift);
 
       const totalSales = items.reduce((sum, item) => sum + itemCalc(item).salesValue, 0);
 
@@ -518,10 +540,11 @@
 
       debtsBody.innerHTML = "";
       if (!openDebts.length) {
-        debtsBody.innerHTML = `<tr><td colspan="7">A stand lezárásakor nem volt nyitott tartozás.</td></tr>`;
+        debtsBody.innerHTML = `<tr><td colspan="7">A stand lezárásakor nem volt tartozás.</td></tr>`;
       } else {
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
+          if (debt.settledInThisShift) tr.className = "print-paid-debt-row";
           tr.innerHTML = `
             <td>${escapeHtml(debt.name || "-")}</td>
             <td>${formatMoney(debt.originalAmount || 0)}</td>

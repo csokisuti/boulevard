@@ -1726,3 +1726,14 @@ button:disabled {
 .action-cell button {
   margin: 2px;
 }
+
+
+.print-paid-debt-row td {
+  text-decoration: line-through;
+  color: #6b7280;
+  background: #f3f4f6;
+}
+
+.print-paid-debt-row td:nth-child(5) {
+  font-weight: 700;
+}
