@@ -825,7 +825,7 @@
     }
 
     function editableMoneyMovementTypes() {
-      return ["card_payment", "lotto_turnover", "repi", "income", "expense"];
+      return ["card_payment", "lotto_turnover", "repi", "income", "expense", "debt_payment"];
     }
 
     function canEditMoneyMovement(item) {
@@ -3082,6 +3082,51 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       await refreshMoneyAfterSave("Pénzmozgás mentve.");
     }
 
+    async function adjustedDebtAfterPaymentChange(debtId, oldAmount, newAmount) {
+      if (!debtId) {
+        showMessage("Ehhez a tartozásbefizetéshez nincs tartozás azonosító.", true);
+        return null;
+      }
+
+      const debtRef = doc(db, "debts", debtId);
+      const debtSnap = await getDoc(debtRef);
+
+      if (!debtSnap.exists()) {
+        showMessage("Nem található a tartozás ehhez a befizetéshez.", true);
+        return null;
+      }
+
+      const debt = { id: debtSnap.id, ...debtSnap.data() };
+      const originalAmount = toNumber(debt.originalAmount);
+      const currentPaid = toNumber(debt.paidAmount);
+      const maxNewAmount = Math.max(0, originalAmount - (currentPaid - oldAmount));
+
+      if (newAmount > maxNewAmount) {
+        showMessage(`A javított befizetés nem lehet több, mint a javítás után fizethető hátralék: ${formatMoney(maxNewAmount)}`, true);
+        return null;
+      }
+
+      const paidAmount = Math.max(0, currentPaid - oldAmount + newAmount);
+      const remainingAmount = Math.max(0, originalAmount - paidAmount);
+      const status = debtStatusAfter(originalAmount, paidAmount);
+
+      return {
+        debtRef,
+        debt,
+        update: {
+          paidAmount,
+          remainingAmount,
+          status,
+          lastPaymentShiftId: currentShift.id,
+          lastPaymentShiftLabel: currentShift.shiftLabel || "",
+          lastPaymentAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        }
+      };
+    }
+
     async function editMoneyMovement(movementId) {
       const item = moneyMovements.find(entry => entry.id === movementId);
 
@@ -3090,7 +3135,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         return;
       }
 
-      const newAmount = promptNumber(`${movementTypeLabel(item.type)} új összege`, toNumber(item.amount));
+      const oldAmount = toNumber(item.amount);
+      const newAmount = promptNumber(`${movementTypeLabel(item.type)} új összege`, oldAmount);
       if (newAmount === null) return;
 
       if (newAmount <= 0) {
@@ -3101,6 +3147,16 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       let newDate = item.movementDate || "";
       let newPerson = item.personName || "";
       let newNote = item.note || "";
+      let debtAdjustment = null;
+
+      if (item.type === "debt_payment") {
+        debtAdjustment = await adjustedDebtAfterPaymentChange(item.debtId, oldAmount, newAmount);
+        if (!debtAdjustment) return;
+        newPerson = debtAdjustment.debt.name || item.personName || "";
+        const notePrompt = promptText("Megjegyzés", newNote);
+        if (notePrompt === null) return;
+        newNote = notePrompt;
+      }
 
       if (item.type === "card_payment" || item.type === "lotto_turnover" || item.type === "income" || item.type === "expense") {
         const datePrompt = promptText("Nap / dátum YYYY-MM-DD formátumban", newDate || shiftStartDateValue(currentShift) || getTodayInputDate());
@@ -3122,10 +3178,12 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       const before = {
         type: item.type,
-        amount: toNumber(item.amount),
+        amount: oldAmount,
         movementDate: item.movementDate || "",
         personName: item.personName || "",
-        note: item.note || ""
+        note: item.note || "",
+        debtId: item.debtId || "",
+        debtBefore: debtAdjustment ? debtAdjustment.debt : null
       };
 
       const after = {
@@ -3133,10 +3191,16 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         amount: newAmount,
         movementDate: newDate,
         personName: item.type === "card_payment" ? "Bankkártya" : (item.type === "lotto_turnover" ? "Lottó" : newPerson),
-        note: item.type === "card_payment" ? "" : newNote
+        note: item.type === "card_payment" ? "" : newNote,
+        debtAfter: debtAdjustment ? debtAdjustment.update : null
       };
 
       const batch = writeBatch(db);
+
+      if (debtAdjustment) {
+        batch.set(debtAdjustment.debtRef, debtAdjustment.update, { merge: true });
+      }
+
       batch.set(doc(db, "shifts", currentShift.id, "moneyMovements", movementId), {
         amount: after.amount,
         movementDate: after.movementDate,
@@ -3165,7 +3229,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       });
 
       await batch.commit();
-      await refreshMoneyAfterSave("Pénzmozgás javítva, a leadó újraszámolva.");
+      await refreshMoneyAfterSave(item.type === "debt_payment" ? "Tartozásbefizetés javítva, a tartozás és a leadó újraszámolva." : "Pénzmozgás javítva, a leadó újraszámolva.");
     }
 
     async function deleteMoneyMovement(movementId) {
@@ -3178,15 +3242,30 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       if (!confirm(`Biztosan törlöd ezt a tételt?\n${movementTypeLabel(item.type)} - ${formatMoney(item.amount)}`)) return;
 
+      const oldAmount = toNumber(item.amount);
+      let debtAdjustment = null;
+
+      if (item.type === "debt_payment") {
+        debtAdjustment = await adjustedDebtAfterPaymentChange(item.debtId, oldAmount, 0);
+        if (!debtAdjustment) return;
+      }
+
       const before = {
         type: item.type,
-        amount: toNumber(item.amount),
+        amount: oldAmount,
         movementDate: item.movementDate || "",
         personName: item.personName || "",
-        note: item.note || ""
+        note: item.note || "",
+        debtId: item.debtId || "",
+        debtBefore: debtAdjustment ? debtAdjustment.debt : null
       };
 
       const batch = writeBatch(db);
+
+      if (debtAdjustment) {
+        batch.set(debtAdjustment.debtRef, debtAdjustment.update, { merge: true });
+      }
+
       batch.delete(doc(db, "shifts", currentShift.id, "moneyMovements", movementId));
       batch.set(doc(collection(db, "logs")), {
         action: isClosedShift() ? "closed_shift_finance_modified" : "money_movement_deleted",
@@ -3196,7 +3275,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
           businessDate: currentShift.businessDate || "",
           businessDateLabel: currentShift.businessDateLabel || "",
           movementId,
-          before
+          before,
+          debtAfter: debtAdjustment ? debtAdjustment.update : null
         },
         userId: currentUser.uid,
         userName: currentUserData.name,
@@ -3205,7 +3285,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       });
 
       await batch.commit();
-      await refreshMoneyAfterSave("Pénzmozgás törölve, a leadó újraszámolva.");
+      await refreshMoneyAfterSave(item.type === "debt_payment" ? "Tartozásbefizetés törölve, a tartozás és a leadó újraszámolva." : "Pénzmozgás törölve, a leadó újraszámolva.");
     }
 
     async function quickAddProduct() {
