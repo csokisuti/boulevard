@@ -1737,3 +1737,17 @@ button:disabled {
 .print-paid-debt-row td:nth-child(5) {
   font-weight: 700;
 }
+
+
+.reports-table input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .reports-table input[type="checkbox"] {
+    width: 26px;
+    height: 26px;
+  }
+}

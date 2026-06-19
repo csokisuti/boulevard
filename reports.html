@@ -19,8 +19,8 @@
     <section class="panel">
       <div class="section-header">
         <div>
-          <h2>Szűrés</h2>
-          <p id="reportInfo">Betöltés...</p>
+          <h2>Stand összesítő</h2>
+          <p id="reportInfo">Válassz dátumot, majd jelöld ki az összesítendő standokat.</p>
         </div>
         <button id="refreshBtn" class="secondary-dark-btn">Frissítés</button>
       </div>
@@ -34,159 +34,58 @@
           <label for="dateTo">Dátumig</label>
           <input id="dateTo" type="date">
         </div>
-        <div>
-          <label for="employeeFilter">Dolgozó</label>
-          <select id="employeeFilter"></select>
-        </div>
       </div>
 
       <div class="button-row">
-        <button id="clearFiltersBtn" class="secondary-dark-btn">Szűrők törlése</button>
+        <button id="loadShiftsBtn">Standok betöltése</button>
+        <button id="selectAllBtn" class="secondary-dark-btn">Összes kijelölése</button>
+        <button id="clearSelectionBtn" class="secondary-dark-btn">Kijelölés törlése</button>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Fő számok</h2>
+      <h2>Kijelölt standok összesítése</h2>
       <div class="finance-summary-grid admin-review-summary-grid">
         <div class="finance-card positive">
-          <span>Lezárt stand</span>
-          <strong id="summaryShiftCount">0</strong>
+          <span>Kijelölt stand</span>
+          <strong id="selectedCount">0</strong>
         </div>
         <div class="finance-card positive">
-          <span>Pultforgalom</span>
-          <strong id="summarySales">0 Ft</strong>
-        </div>
-        <div class="finance-card">
-          <span>Beszerzési érték</span>
-          <strong id="summaryPurchase">0 Ft</strong>
-        </div>
-        <div class="finance-card total">
-          <span>Árrés</span>
-          <strong id="summaryMargin">0 Ft</strong>
+          <span>Pultforgalom összesen</span>
+          <strong id="selectedSales">0 Ft</strong>
         </div>
         <div class="finance-card positive">
-          <span>Árrés %</span>
-          <strong id="summaryMarginPercent">0%</strong>
-        </div>
-        <div class="finance-card">
-          <span>Átlag pultforgalom / stand</span>
-          <strong id="summaryAvgSales">0 Ft</strong>
-        </div>
-        <div class="finance-card negative">
-          <span>Bankkártya</span>
-          <strong id="summaryCardPayment">0 Ft</strong>
-        </div>
-        <div class="finance-card positive">
-          <span>Leadó összesen</span>
-          <strong id="summaryCashExpected">0 Ft</strong>
-        </div>
-        <div class="finance-card positive">
-          <span>Legjobb pultforgalom</span>
-          <strong id="summaryBestEmployee">-</strong>
-        </div>
-        <div class="finance-card">
-          <span>Átlagforgalom különbség</span>
-          <strong id="summaryEmployeeDiff">0 Ft</strong>
+          <span>Lottóforgalom összesen</span>
+          <strong id="selectedLotto">0 Ft</strong>
         </div>
       </div>
     </section>
 
-    <details class="panel collapsible-panel" open>
-      <summary>Dolgozói összehasonlítás</summary>
-      <p class="muted-cell">A dolgozók pultforgalmának, árrésének és átlagos standértékének összevetése.</p>
-      <div class="table-wrapper">
-        <table class="data-table reports-table">
-          <thead>
-            <tr>
-              <th>Dolgozó</th>
-              <th>Standok</th>
-              <th>Pultforgalom</th>
-              <th>Átlag / stand</th>
-              <th>Átlagtól eltérés</th>
-              <th>Beszerzési érték</th>
-              <th>Árrés</th>
-              <th>Árrés %</th>
-              <th>Bankkártya</th>
-              <th>Repi</th>
-              <th>Tartozás</th>
-            </tr>
-          </thead>
-          <tbody id="employeeStatsBody"></tbody>
-        </table>
+    <section class="panel">
+      <div class="section-header">
+        <div>
+          <h2>Standok</h2>
+          <p id="shiftListInfo">Nincs betöltött lista.</p>
+        </div>
       </div>
-    </details>
 
-    <details class="panel collapsible-panel" open>
-      <summary>Lezárt standok árrése</summary>
-      <p class="muted-cell">Stand szintű bontás: forgalom, beszerzési érték, árrés, leadó és pénzmozgások.</p>
       <div class="table-wrapper">
         <table class="data-table reports-table">
           <thead>
             <tr>
+              <th>Kijelölés</th>
               <th>Dátum</th>
               <th>Stand</th>
+              <th>Lezárta</th>
               <th>Pultforgalom</th>
-              <th>Beszerzési érték</th>
-              <th>Árrés</th>
-              <th>Árrés %</th>
-              <th>Bankkártya</th>
-              <th>Lottó</th>
-              <th>Repi</th>
-              <th>Tartozás</th>
-              <th>Leadó</th>
-              <th>Művelet</th>
+              <th>Lottóforgalom</th>
+              <th>PDF</th>
             </tr>
           </thead>
-          <tbody id="shiftStatsBody"></tbody>
+          <tbody id="shiftsBody"></tbody>
         </table>
       </div>
-    </details>
-
-    <details class="panel collapsible-panel">
-      <summary>Termékriport</summary>
-      <p id="productReportInfo" class="muted-cell">Termékbontás betöltésre vár.</p>
-      <div class="table-wrapper">
-        <table class="data-table reports-table">
-          <thead>
-            <tr>
-              <th>Termék</th>
-              <th>Kategória</th>
-              <th>Fogyás</th>
-              <th>Pultforgalom</th>
-              <th>Beszerzési érték</th>
-              <th>Árrés</th>
-              <th>Árrés %</th>
-              <th>Átlag eladási ár</th>
-            </tr>
-          </thead>
-          <tbody id="productStatsBody"></tbody>
-        </table>
-      </div>
-    </details>
-
-    <details class="panel collapsible-panel">
-      <summary>Pénzügyi bontás</summary>
-      <p class="muted-cell">A lezárt standokhoz mentett pénzügyi összesítők alapján.</p>
-      <div class="table-wrapper">
-        <table class="data-table reports-table">
-          <thead>
-            <tr>
-              <th>Tétel</th>
-              <th>Összeg</th>
-              <th>Magyarázat</th>
-            </tr>
-          </thead>
-          <tbody id="financeBreakdownBody"></tbody>
-        </table>
-      </div>
-    </details>
-
-    <details class="panel collapsible-panel">
-      <summary>Gyors következtetések</summary>
-      <div id="insightsBox" class="report-insights-box"></div>
-    </details>
-
-    <div id="message"></div>
+    </section>
   </main>
 
   <script type="module">
@@ -198,59 +97,51 @@
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
     const refreshBtn = document.getElementById("refreshBtn");
-    const clearFiltersBtn = document.getElementById("clearFiltersBtn");
-    const reportInfo = document.getElementById("reportInfo");
-    const productReportInfo = document.getElementById("productReportInfo");
-    const message = document.getElementById("message");
     const dateFrom = document.getElementById("dateFrom");
     const dateTo = document.getElementById("dateTo");
-    const employeeFilter = document.getElementById("employeeFilter");
-
-    const summaryShiftCount = document.getElementById("summaryShiftCount");
-    const summarySales = document.getElementById("summarySales");
-    const summaryPurchase = document.getElementById("summaryPurchase");
-    const summaryMargin = document.getElementById("summaryMargin");
-    const summaryMarginPercent = document.getElementById("summaryMarginPercent");
-    const summaryAvgSales = document.getElementById("summaryAvgSales");
-    const summaryCardPayment = document.getElementById("summaryCardPayment");
-    const summaryCashExpected = document.getElementById("summaryCashExpected");
-    const summaryBestEmployee = document.getElementById("summaryBestEmployee");
-    const summaryEmployeeDiff = document.getElementById("summaryEmployeeDiff");
-
-    const employeeStatsBody = document.getElementById("employeeStatsBody");
-    const shiftStatsBody = document.getElementById("shiftStatsBody");
-    const productStatsBody = document.getElementById("productStatsBody");
-    const financeBreakdownBody = document.getElementById("financeBreakdownBody");
-    const insightsBox = document.getElementById("insightsBox");
+    const loadShiftsBtn = document.getElementById("loadShiftsBtn");
+    const selectAllBtn = document.getElementById("selectAllBtn");
+    const clearSelectionBtn = document.getElementById("clearSelectionBtn");
+    const reportInfo = document.getElementById("reportInfo");
+    const shiftListInfo = document.getElementById("shiftListInfo");
+    const shiftsBody = document.getElementById("shiftsBody");
+    const selectedCount = document.getElementById("selectedCount");
+    const selectedSales = document.getElementById("selectedSales");
+    const selectedLotto = document.getElementById("selectedLotto");
 
     let currentUser = null;
     let currentUserData = null;
-    let closedShifts = [];
-    let itemCache = new Map();
-    let productRenderTicket = 0;
+    let shifts = [];
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
     });
 
     refreshBtn.addEventListener("click", async () => {
-      await loadReports();
+      await loadShifts();
     });
 
-    clearFiltersBtn.addEventListener("click", async () => {
-      dateFrom.value = "";
-      dateTo.value = "";
-      employeeFilter.value = "all";
-      await renderReports();
+    loadShiftsBtn.addEventListener("click", async () => {
+      await loadShifts();
     });
 
-    dateFrom.addEventListener("change", renderReports);
-    dateTo.addEventListener("change", renderReports);
-    employeeFilter.addEventListener("change", renderReports);
+    selectAllBtn.addEventListener("click", () => {
+      shiftsBody.querySelectorAll(".shift-select").forEach(input => {
+        input.checked = true;
+      });
+      updateSelectedSummary();
+    });
 
-    function can(permission) {
-      return hasPermission(currentUserData, permission);
-    }
+    clearSelectionBtn.addEventListener("click", () => {
+      shiftsBody.querySelectorAll(".shift-select").forEach(input => {
+        input.checked = false;
+      });
+      updateSelectedSummary();
+    });
+
+    shiftsBody.addEventListener("change", event => {
+      if (event.target.classList.contains("shift-select")) updateSelectedSummary();
+    });
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -270,23 +161,6 @@
       return `${Math.round(Number(value || 0)).toLocaleString("hu-HU")} Ft`;
     }
 
-    function formatNumber(value) {
-      const n = Number(value || 0);
-      if (Number.isInteger(n)) return String(n.toLocaleString("hu-HU"));
-      return String(Number(n.toFixed(2)).toLocaleString("hu-HU"));
-    }
-
-    function formatPercent(value) {
-      if (!Number.isFinite(value)) return "0%";
-      return `${Number(value.toFixed(1)).toLocaleString("hu-HU")}%`;
-    }
-
-    function formatDateTime(value) {
-      if (!value) return "-";
-      const date = value.toDate ? value.toDate() : new Date(value);
-      return date.toLocaleString("hu-HU");
-    }
-
     function formatBusinessDate(value) {
       if (!value) return "-";
       const parts = String(value).split("-");
@@ -294,398 +168,132 @@
       return `${parts[0]}.${parts[1]}.${parts[2]}.`;
     }
 
-    function employeeName(shift) {
-      return shift.assignedUserName || shift.closedByName || shift.openedByName || "Ismeretlen";
+    function formatBusinessDateRange(start, end) {
+      if (!start && !end) return "-";
+      const safeStart = start || end;
+      const safeEnd = end || start;
+      if (!safeEnd || safeStart === safeEnd) return formatBusinessDate(safeStart);
+      return `${formatBusinessDate(safeStart)} - ${formatBusinessDate(safeEnd)}`;
     }
 
-    function shiftSales(shift) {
-      return toNumber(shift.totalSalesValue);
+    function shiftStartDateValue(shift) {
+      return shift?.businessDateStart || shift?.businessDate || "";
     }
 
-    function shiftPurchase(shift) {
-      return toNumber(shift.totalPurchaseValue);
+    function shiftEndDateValue(shift) {
+      return shift?.businessDateEnd || shiftStartDateValue(shift);
     }
 
-    function shiftMargin(shift) {
-      if (shift.totalMarginValue !== undefined) return toNumber(shift.totalMarginValue);
-      return shiftSales(shift) - shiftPurchase(shift);
+    function shiftDateLabel(shift) {
+      return shift?.businessDateLabel || formatBusinessDateRange(shiftStartDateValue(shift), shiftEndDateValue(shift));
     }
 
-    function marginPercent(sales, margin) {
-      return sales > 0 ? margin / sales * 100 : 0;
+    function setDefaultDates() {
+      const today = new Date();
+      const to = today.toISOString().slice(0, 10);
+      const fromDate = new Date(today);
+      fromDate.setDate(fromDate.getDate() - 30);
+      const from = fromDate.toISOString().slice(0, 10);
+
+      if (!dateFrom.value) dateFrom.value = from;
+      if (!dateTo.value) dateTo.value = to;
     }
 
-    function setMessage(text, error = false) {
-      message.textContent = text;
-      message.style.color = error ? "#b91c1c" : "#047857";
+    function shiftInDateRange(shift) {
+      const from = dateFrom.value || "0000-00-00";
+      const to = dateTo.value || "9999-99-99";
+      const start = shiftStartDateValue(shift);
+      const end = shiftEndDateValue(shift);
+
+      if (!start && !end) return false;
+
+      const safeStart = start || end;
+      const safeEnd = end || start;
+
+      return safeEnd >= from && safeStart <= to;
     }
 
-    function getFilteredShifts() {
-      const from = dateFrom.value;
-      const to = dateTo.value;
-      const employee = employeeFilter.value;
+    async function loadShifts() {
+      if (!currentUserData) return;
 
-      return closedShifts.filter(shift => {
-        const date = shift.businessDate || "";
-        const employeeText = employeeName(shift);
-        if (from && date && date < from) return false;
-        if (to && date && date > to) return false;
-        if (employee !== "all" && employeeText !== employee) return false;
-        return true;
-      });
-    }
-
-    function sum(shifts, getter) {
-      return shifts.reduce((total, shift) => total + getter(shift), 0);
-    }
-
-    function populateEmployeeFilter() {
-      const current = employeeFilter.value || "all";
-      const employees = [...new Set(closedShifts.map(shift => employeeName(shift)))].sort((a, b) => a.localeCompare(b, "hu"));
-      employeeFilter.innerHTML = `<option value="all">Minden dolgozó</option>`;
-
-      employees.forEach(name => {
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        employeeFilter.appendChild(option);
-      });
-
-      employeeFilter.value = employees.includes(current) ? current : "all";
-    }
-
-    function employeeStats(shifts) {
-      const map = new Map();
-
-      shifts.forEach(shift => {
-        const name = employeeName(shift);
-        if (!map.has(name)) {
-          map.set(name, {
-            name,
-            count: 0,
-            sales: 0,
-            purchase: 0,
-            margin: 0,
-            card: 0,
-            repi: 0,
-            debtCreated: 0,
-            debtPaid: 0,
-            cashExpected: 0
-          });
-        }
-
-        const item = map.get(name);
-        item.count += 1;
-        item.sales += shiftSales(shift);
-        item.purchase += shiftPurchase(shift);
-        item.margin += shiftMargin(shift);
-        item.card += toNumber(shift.totalCardPayment);
-        item.repi += toNumber(shift.totalRepi);
-        item.debtCreated += toNumber(shift.totalDebtCreated);
-        item.debtPaid += toNumber(shift.totalDebtPaid);
-        item.cashExpected += toNumber(shift.totalCashExpected || shift.handoverAmount);
-      });
-
-      return [...map.values()].sort((a, b) => b.sales - a.sales);
-    }
-
-    function renderSummary(shifts) {
-      const sales = sum(shifts, shiftSales);
-      const purchase = sum(shifts, shiftPurchase);
-      const margin = sum(shifts, shiftMargin);
-      const card = sum(shifts, shift => toNumber(shift.totalCardPayment));
-      const cashExpected = sum(shifts, shift => toNumber(shift.totalCashExpected || shift.handoverAmount));
-      const avgSales = shifts.length ? sales / shifts.length : 0;
-      const employees = employeeStats(shifts);
-      const bestEmployee = employees.length ? employees[0] : null;
-      const avgList = employees.map(item => item.count ? item.sales / item.count : 0);
-      const diff = avgList.length > 1 ? Math.max(...avgList) - Math.min(...avgList) : 0;
-
-      summaryShiftCount.textContent = String(shifts.length);
-      summarySales.textContent = formatMoney(sales);
-      summaryPurchase.textContent = formatMoney(purchase);
-      summaryMargin.textContent = formatMoney(margin);
-      summaryMarginPercent.textContent = formatPercent(marginPercent(sales, margin));
-      summaryAvgSales.textContent = formatMoney(avgSales);
-      summaryCardPayment.textContent = formatMoney(card);
-      summaryCashExpected.textContent = formatMoney(cashExpected);
-      summaryBestEmployee.textContent = bestEmployee ? `${bestEmployee.name} (${formatMoney(bestEmployee.sales)})` : "-";
-      summaryEmployeeDiff.textContent = formatMoney(diff);
-    }
-
-    function renderEmployeeStats(shifts) {
-      const rows = employeeStats(shifts);
-      const totalAvg = shifts.length ? sum(shifts, shiftSales) / shifts.length : 0;
-      employeeStatsBody.innerHTML = "";
-
-      if (!rows.length) {
-        employeeStatsBody.innerHTML = `<tr><td colspan="11">Nincs megjeleníthető dolgozói adat.</td></tr>`;
-        return;
-      }
-
-      rows.forEach(item => {
-        const avg = item.count ? item.sales / item.count : 0;
-        const diff = avg - totalAvg;
-        const debtNet = item.debtCreated - item.debtPaid;
-        const tr = document.createElement("tr");
-
-        tr.innerHTML = `
-          <td><strong>${escapeHtml(item.name)}</strong></td>
-          <td>${item.count}</td>
-          <td>${formatMoney(item.sales)}</td>
-          <td>${formatMoney(avg)}</td>
-          <td class="${diff >= 0 ? "positive-text" : "negative-text"}">${diff >= 0 ? "+" : ""}${formatMoney(diff)}</td>
-          <td>${formatMoney(item.purchase)}</td>
-          <td><strong>${formatMoney(item.margin)}</strong></td>
-          <td>${formatPercent(marginPercent(item.sales, item.margin))}</td>
-          <td>${formatMoney(item.card)}</td>
-          <td>${formatMoney(item.repi)}</td>
-          <td>${formatMoney(debtNet)}</td>
-        `;
-
-        employeeStatsBody.appendChild(tr);
-      });
-    }
-
-    function renderShiftStats(shifts) {
-      shiftStatsBody.innerHTML = "";
-
-      if (!shifts.length) {
-        shiftStatsBody.innerHTML = `<tr><td colspan="12">Nincs lezárt stand a szűrés alapján.</td></tr>`;
-        return;
-      }
-
-      shifts.forEach(shift => {
-        const sales = shiftSales(shift);
-        const purchase = shiftPurchase(shift);
-        const margin = shiftMargin(shift);
-        const debtNet = toNumber(shift.totalDebtCreated) - toNumber(shift.totalDebtPaid);
-        const tr = document.createElement("tr");
-
-        tr.innerHTML = `
-          <td>${shift.businessDate ? formatBusinessDate(shift.businessDate) : formatDateTime(shift.closedAt)}</td>
-          <td><strong>${escapeHtml(employeeName(shift))}</strong><div class="muted-cell">${escapeHtml(shift.shiftLabel || "")}</div></td>
-          <td>${formatMoney(sales)}</td>
-          <td>${formatMoney(purchase)}</td>
-          <td><strong>${formatMoney(margin)}</strong></td>
-          <td>${formatPercent(marginPercent(sales, margin))}</td>
-          <td>${formatMoney(shift.totalCardPayment)}</td>
-          <td>${formatMoney(shift.totalLottoTurnover)}</td>
-          <td>${formatMoney(shift.totalRepi)}</td>
-          <td>${formatMoney(debtNet)}</td>
-          <td>${formatMoney(shift.totalCashExpected || shift.handoverAmount)}</td>
-          <td><a class="small-link-btn" href="stand.html?shiftId=${encodeURIComponent(shift.id)}">Megnyitás</a></td>
-        `;
-
-        shiftStatsBody.appendChild(tr);
-      });
-    }
-
-    function renderFinanceBreakdown(shifts) {
-      const rows = [
-        ["Pultforgalom", sum(shifts, shiftSales), "Termékfogyásból számolt eladási érték."],
-        ["Beszerzési érték", sum(shifts, shiftPurchase), "A fogyott termékek beszerzési értéke."],
-        ["Árrés", sum(shifts, shiftMargin), "Pultforgalom mínusz beszerzési érték."],
-        ["Előző stand leadó", sum(shifts, shift => toNumber(shift.totalPreviousHandover)), "Az előző standból áthozott pénz."],
-        ["Bankkártya", sum(shifts, shift => toNumber(shift.totalCardPayment)), "Leadóból levonandó kártyás összeg."],
-        ["Lottó forgalom", sum(shifts, shift => toNumber(shift.totalLottoTurnover)), "Leadóhoz hozzáadódó lottó összeg."],
-        ["Repi", sum(shifts, shift => toNumber(shift.totalRepi)), "Leadóból levonandó reprezentáció."],
-        ["Egyéb bevétel", sum(shifts, shift => toNumber(shift.totalMoneyIncome)), "Egyéb pozitív pénzmozgás."],
-        ["Egyéb kiadás", sum(shifts, shift => toNumber(shift.totalMoneyExpense)), "Egyéb negatív pénzmozgás."],
-        ["Új tartozás", sum(shifts, shift => toNumber(shift.totalDebtCreated)), "Leadót csökkentő nyitott tartozás."],
-        ["Tartozás befizetés", sum(shifts, shift => toNumber(shift.totalDebtPaid)), "Leadót növelő tartozás-befizetés."],
-        ["Leadó összesen", sum(shifts, shift => toNumber(shift.totalCashExpected || shift.handoverAmount)), "Standzáráskor számolt leadó."],
-      ];
-
-      financeBreakdownBody.innerHTML = "";
-
-      rows.forEach(row => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td><strong>${escapeHtml(row[0])}</strong></td>
-          <td>${formatMoney(row[1])}</td>
-          <td>${escapeHtml(row[2])}</td>
-        `;
-        financeBreakdownBody.appendChild(tr);
-      });
-    }
-
-    async function loadItemsForShift(shiftId) {
-      if (itemCache.has(shiftId)) return itemCache.get(shiftId);
-
-      const snap = await getDocs(collection(db, "shifts", shiftId, "items"));
-      const items = [];
-
-      snap.forEach(item => {
-        items.push({ id: item.id, ...item.data() });
-      });
-
-      itemCache.set(shiftId, items);
-      return items;
-    }
-
-    async function renderProductStats(shifts) {
-      const ticket = ++productRenderTicket;
-      productStatsBody.innerHTML = `<tr><td colspan="8">Termékriport betöltése...</td></tr>`;
-      productReportInfo.textContent = `${shifts.length} lezárt stand terméksorainak betöltése...`;
-
-      if (!shifts.length) {
-        productStatsBody.innerHTML = `<tr><td colspan="8">Nincs termékadat a szűrés alapján.</td></tr>`;
-        productReportInfo.textContent = "Nincs lezárt stand a szűrés alapján.";
-        return;
-      }
-
-      const map = new Map();
-
-      for (const shift of shifts) {
-        const items = await loadItemsForShift(shift.id);
-        if (ticket !== productRenderTicket) return;
-
-        items.forEach(item => {
-          const key = item.productId || item.id || item.productNameAtShift || "ismeretlen";
-
-          if (!map.has(key)) {
-            map.set(key, {
-              name: item.productNameAtShift || "Ismeretlen termék",
-              category: item.categoryAtShift || "Egyéb",
-              consumption: 0,
-              sales: 0,
-              purchase: 0,
-              margin: 0
-            });
-          }
-
-          const row = map.get(key);
-          row.consumption += toNumber(item.consumption);
-          row.sales += toNumber(item.salesValue);
-          row.purchase += toNumber(item.purchaseValue);
-          row.margin += item.marginValue !== undefined ? toNumber(item.marginValue) : toNumber(item.salesValue) - toNumber(item.purchaseValue);
-        });
-      }
-
-      const rows = [...map.values()]
-        .filter(item => item.consumption !== 0 || item.sales !== 0 || item.purchase !== 0)
-        .sort((a, b) => b.sales - a.sales);
-
-      productStatsBody.innerHTML = "";
-      productReportInfo.textContent = `${rows.length} fogyással vagy forgalommal rendelkező termék.`;
-
-      if (!rows.length) {
-        productStatsBody.innerHTML = `<tr><td colspan="8">Nincs fogyással vagy forgalommal rendelkező termék.</td></tr>`;
-        return;
-      }
-
-      rows.slice(0, 100).forEach(item => {
-        const avgPrice = item.consumption ? item.sales / item.consumption : 0;
-        const tr = document.createElement("tr");
-
-        tr.innerHTML = `
-          <td><strong>${escapeHtml(item.name)}</strong></td>
-          <td>${escapeHtml(item.category)}</td>
-          <td>${formatNumber(item.consumption)}</td>
-          <td>${formatMoney(item.sales)}</td>
-          <td>${formatMoney(item.purchase)}</td>
-          <td><strong>${formatMoney(item.margin)}</strong></td>
-          <td>${formatPercent(marginPercent(item.sales, item.margin))}</td>
-          <td>${formatMoney(avgPrice)}</td>
-        `;
-
-        productStatsBody.appendChild(tr);
-      });
-    }
-
-    function renderInsights(shifts) {
-      const employees = employeeStats(shifts);
-      const sales = sum(shifts, shiftSales);
-      const margin = sum(shifts, shiftMargin);
-      const card = sum(shifts, shift => toNumber(shift.totalCardPayment));
-      const repi = sum(shifts, shift => toNumber(shift.totalRepi));
-      const debtNet = sum(shifts, shift => toNumber(shift.totalDebtCreated) - toNumber(shift.totalDebtPaid));
-      const avg = shifts.length ? sales / shifts.length : 0;
-      const best = employees[0] || null;
-      const worstAvg = employees.length ? [...employees].sort((a, b) => (a.sales / a.count) - (b.sales / b.count))[0] : null;
-      const bestAvg = employees.length ? [...employees].sort((a, b) => (b.sales / b.count) - (a.sales / a.count))[0] : null;
-      const lines = [];
-
-      if (!shifts.length) {
-        insightsBox.innerHTML = `<p class="muted-cell">Nincs elég adat következtetéshez.</p>`;
-        return;
-      }
-
-      lines.push(`A kiválasztott időszakban ${shifts.length} lezárt stand szerepel, összesen ${formatMoney(sales)} pultforgalommal.`);
-      lines.push(`A teljes árrés ${formatMoney(margin)}, ami ${formatPercent(marginPercent(sales, margin))} árrésszintet jelent.`);
-      lines.push(`Az átlagos pultforgalom standonként ${formatMoney(avg)}.`);
-
-      if (best) {
-        lines.push(`A legmagasabb összes pultforgalom: ${best.name}, ${formatMoney(best.sales)}.`);
-      }
-
-      if (bestAvg && worstAvg && bestAvg.name !== worstAvg.name) {
-        const diff = bestAvg.sales / bestAvg.count - worstAvg.sales / worstAvg.count;
-        lines.push(`Átlagos standérték alapján a legerősebb és leggyengébb dolgozó között ${formatMoney(diff)} különbség van.`);
-      }
-
-      if (card > 0) lines.push(`A bankkártyás összeg ${formatMoney(card)}, ezt a leadó értelmezésénél mindig külön kell nézni.`);
-      if (repi > 0) lines.push(`A repi összesen ${formatMoney(repi)}, ez közvetlenül csökkenti a leadót.`);
-      if (debtNet > 0) lines.push(`A tartozások nettó hatása ${formatMoney(debtNet)} mínusz irányban jelentkezik a pénztárban.`);
-
-      insightsBox.innerHTML = lines.map(line => `<div class="report-insight-item">${escapeHtml(line)}</div>`).join("");
-    }
-
-    async function renderReports() {
-      const shifts = getFilteredShifts();
-      renderSummary(shifts);
-      renderEmployeeStats(shifts);
-      renderShiftStats(shifts);
-      renderFinanceBreakdown(shifts);
-      renderInsights(shifts);
-      reportInfo.textContent = `${shifts.length} lezárt stand megjelenítve az utolsó ${closedShifts.length} betöltött standból.`;
-      await renderProductStats(shifts);
-    }
-
-    async function loadReports() {
-      if (!can("canViewReports")) {
+      if (!hasPermission(currentUserData, "canViewReports")) {
         reportInfo.textContent = "Nincs jogosultságod a riportokhoz.";
-        setMessage("Nincs jogosultságod a riportok megtekintéséhez.", true);
+        shiftsBody.innerHTML = `<tr><td colspan="7">Nincs jogosultság.</td></tr>`;
         return;
       }
 
-      reportInfo.textContent = "Riportadatok betöltése...";
-      setMessage("");
+      setDefaultDates();
+      reportInfo.textContent = "Betöltés...";
+      shiftListInfo.textContent = "Betöltés...";
+      shiftsBody.innerHTML = `<tr><td colspan="7">Betöltés...</td></tr>`;
 
       try {
-        const shiftsQuery = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(160));
-        const snap = await getDocs(shiftsQuery);
-        closedShifts = [];
+        const snap = await getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(300)));
+        shifts = [];
 
         snap.forEach(item => {
           const data = item.data();
-          if (data.status === "closed") closedShifts.push({ id: item.id, ...data });
+          if (data.status !== "closed") return;
+          if (!shiftInDateRange(data)) return;
+          shifts.push({ id: item.id, ...data });
         });
 
-        closedShifts.sort((a, b) => {
-          const aTime = a.closedAt && a.closedAt.toMillis ? a.closedAt.toMillis() : 0;
-          const bTime = b.closedAt && b.closedAt.toMillis ? b.closedAt.toMillis() : 0;
-          return bTime - aTime;
-        });
-
-        populateEmployeeFilter();
-        await renderReports();
+        renderShifts();
+        updateSelectedSummary();
+        reportInfo.textContent = `${dateFrom.value || "-"} - ${dateTo.value || "-"} közötti lezárt standok`;
       } catch (error) {
         console.error(error);
-        reportInfo.textContent = "Nem sikerült betölteni a riportokat.";
-        setMessage("Hiba történt a riportok betöltése közben.", true);
+        reportInfo.textContent = "Nem sikerült betölteni a riportot.";
+        shiftListInfo.textContent = "Hiba történt.";
+        shiftsBody.innerHTML = `<tr><td colspan="7">Hiba történt betöltés közben.</td></tr>`;
       }
     }
 
-    onAuthStateChanged(auth, async (user) => {
+    function renderShifts() {
+      shiftsBody.innerHTML = "";
+
+      if (!shifts.length) {
+        shiftListInfo.textContent = "Nincs lezárt stand a kiválasztott dátumtartományban.";
+        shiftsBody.innerHTML = `<tr><td colspan="7">Nincs találat.</td></tr>`;
+        return;
+      }
+
+      shiftListInfo.textContent = `${shifts.length} stand a kiválasztott dátumtartományban`;
+
+      shifts.forEach(shift => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td data-label="Kijelölés"><input class="shift-select" type="checkbox" data-id="${escapeHtml(shift.id)}"></td>
+          <td data-label="Dátum">${escapeHtml(shiftDateLabel(shift))}</td>
+          <td data-label="Stand">${escapeHtml(shift.assignedUserName || shift.closedByName || "-")}</td>
+          <td data-label="Lezárta">${escapeHtml(shift.closedByName || "-")}</td>
+          <td data-label="Pultforgalom">${formatMoney(shift.totalSalesValue || 0)}</td>
+          <td data-label="Lottóforgalom">${formatMoney(shift.totalLottoTurnover || 0)}</td>
+          <td data-label="PDF"><a class="small-link-btn print-link-btn" href="shift_print.html?shiftId=${encodeURIComponent(shift.id)}" target="_blank">PDF kép</a></td>
+        `;
+        shiftsBody.appendChild(tr);
+      });
+    }
+
+    function updateSelectedSummary() {
+      const selectedIds = new Set([...shiftsBody.querySelectorAll(".shift-select:checked")].map(input => input.dataset.id));
+      const selected = shifts.filter(shift => selectedIds.has(shift.id));
+
+      const sales = selected.reduce((sum, shift) => sum + toNumber(shift.totalSalesValue), 0);
+      const lotto = selected.reduce((sum, shift) => sum + toNumber(shift.totalLottoTurnover), 0);
+
+      selectedCount.textContent = selected.length;
+      selectedSales.textContent = formatMoney(sales);
+      selectedLotto.textContent = formatMoney(lotto);
+    }
+
+    onAuthStateChanged(auth, async user => {
       if (!user) {
         window.location.href = "login.html";
         return;
       }
 
       currentUser = user;
-
       const userSnap = await getDoc(doc(db, "users", user.uid));
 
       if (!userSnap.exists()) {
@@ -700,8 +308,16 @@
         return;
       }
 
-      userInfo.textContent = `${currentUserData.name || currentUser.email} - ${roleLabel(currentUserData.role)}`;
-      await loadReports();
+      if (!hasPermission(currentUserData, "canViewReports")) {
+        userInfo.textContent = `${currentUserData.name || user.email} - ${roleLabel(currentUserData.role)}`;
+        reportInfo.textContent = "Nincs jogosultságod a riportokhoz.";
+        shiftsBody.innerHTML = `<tr><td colspan="7">Nincs jogosultság.</td></tr>`;
+        return;
+      }
+
+      userInfo.textContent = `${currentUserData.name || user.email} - ${roleLabel(currentUserData.role)}`;
+      setDefaultDates();
+      await loadShifts();
     });
   </script>
 </body>
