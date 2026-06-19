@@ -1758,29 +1758,28 @@ button:disabled {
   margin-top: 8px;
 }
 
-.print-consumed-row td {
-  background: #dcfce7;
-  color: #14532d;
+
+
+.print-table tr.print-consumed-row,
+.print-table tr.print-consumed-row td,
+.data-table tr.print-consumed-row,
+.data-table tr.print-consumed-row td {
+  background: #dcfce7 !important;
+  color: #14532d !important;
 }
 
-.print-no-consumption-row td {
-  background: #f8fafc;
-  color: #64748b;
+.print-table tr.print-no-consumption-row,
+.print-table tr.print-no-consumption-row td,
+.data-table tr.print-no-consumption-row,
+.data-table tr.print-no-consumption-row td {
+  background: #f8fafc !important;
+  color: #64748b !important;
 }
 
-.print-negative-consumption-row td {
-  background: #fff7ed;
-  color: #9a3412;
-}
-
-.print-consumption-badge {
-  display: inline-block;
-  margin-top: 4px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.print-table tr.print-negative-consumption-row,
+.print-table tr.print-negative-consumption-row td,
+.data-table tr.print-negative-consumption-row,
+.data-table tr.print-negative-consumption-row td {
+  background: #fff7ed !important;
+  color: #9a3412 !important;
 }
