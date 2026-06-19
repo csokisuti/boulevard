@@ -1783,3 +1783,190 @@ button:disabled {
   background: #fff7ed !important;
   color: #9a3412 !important;
 }
+
+
+@page {
+  size: A4 landscape;
+  margin: 8mm;
+}
+
+@media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  body {
+    font-size: 10px !important;
+  }
+
+  .topbar,
+  .print-actions,
+  button,
+  .secondary-btn,
+  .secondary-dark-btn,
+  .small-link-btn {
+    display: none !important;
+  }
+
+  .container,
+  .print-container {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .print-header,
+  .print-section,
+  .panel {
+    box-shadow: none !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+    padding: 8px !important;
+    margin: 0 0 8px 0 !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    background: #ffffff !important;
+  }
+
+  .print-header h1,
+  .print-section h2 {
+    margin: 0 0 6px 0 !important;
+    font-size: 15px !important;
+  }
+
+  .print-meta-grid,
+  .finance-summary-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 5px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .print-meta-grid div,
+  .finance-card,
+  .summary-box {
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+    padding: 5px !important;
+    background: #f8fafc !important;
+  }
+
+  .print-meta-grid span,
+  .finance-card span {
+    font-size: 8px !important;
+    color: #475569 !important;
+  }
+
+  .print-meta-grid strong,
+  .finance-card strong {
+    font-size: 11px !important;
+    color: #0f172a !important;
+  }
+
+  .print-table-wrapper,
+  .table-wrapper {
+    overflow: visible !important;
+    border: 0 !important;
+  }
+
+  table,
+  .print-table,
+  .data-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: fixed !important;
+    font-size: 8.2px !important;
+  }
+
+  th,
+  td,
+  .print-table th,
+  .print-table td,
+  .data-table th,
+  .data-table td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 3px 4px !important;
+    vertical-align: top !important;
+    line-height: 1.25 !important;
+    word-break: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  th,
+  .print-table th,
+  .data-table th {
+    background: #020617 !important;
+    color: #ffffff !important;
+    font-weight: 800 !important;
+  }
+
+  .print-category-row td,
+  .product-category-row td {
+    background: #dbeafe !important;
+    color: #1e3a8a !important;
+    font-weight: 800 !important;
+  }
+
+  .print-table tr.print-consumed-row,
+  .print-table tr.print-consumed-row td,
+  .data-table tr.print-consumed-row,
+  .data-table tr.print-consumed-row td {
+    background: #dcfce7 !important;
+    color: #14532d !important;
+  }
+
+  .print-table tr.print-no-consumption-row,
+  .print-table tr.print-no-consumption-row td,
+  .data-table tr.print-no-consumption-row,
+  .data-table tr.print-no-consumption-row td {
+    background: #f8fafc !important;
+    color: #64748b !important;
+  }
+
+  .print-table tr.print-negative-consumption-row,
+  .print-table tr.print-negative-consumption-row td,
+  .data-table tr.print-negative-consumption-row,
+  .data-table tr.print-negative-consumption-row td {
+    background: #fff7ed !important;
+    color: #9a3412 !important;
+  }
+
+  .print-paid-debt-row td {
+    text-decoration: line-through !important;
+    color: #6b7280 !important;
+    background: #f3f4f6 !important;
+  }
+
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+
+  tr,
+  td,
+  th {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  .print-section:nth-of-type(3),
+  .print-section:nth-of-type(4) {
+    break-before: auto;
+  }
+}
