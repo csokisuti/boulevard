@@ -243,36 +243,55 @@
       return shift?.businessDateLabel || formatBusinessDateRange(shiftStartDateValue(shift), shiftEndDateValue(shift));
     }
 
+    function localDateFromInput(value) {
+      const parts = String(value || "").split("-").map(Number);
+      if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return new Date();
+      return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+
     function dateToMonday(value) {
-      const date = new Date(`${value}T00:00:00`);
+      const date = localDateFromInput(value);
       const day = date.getDay();
       const diff = day === 0 ? -6 : 1 - day;
       date.setDate(date.getDate() + diff);
+      date.setHours(12, 0, 0, 0);
       return date;
     }
 
     function addDays(date, days) {
-      const copy = new Date(date);
+      const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
       copy.setDate(copy.getDate() + days);
       return copy;
     }
 
     function dateInputFromDate(date) {
-      return date.toISOString().slice(0, 10);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
     }
 
     function isoWeekNumber(value) {
-      const date = new Date(`${value}T00:00:00`);
-      date.setHours(0, 0, 0, 0);
-      date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
-      const week1 = new Date(date.getFullYear(), 0, 4);
-      return 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+      const source = localDateFromInput(value);
+      const date = new Date(Date.UTC(source.getFullYear(), source.getMonth(), source.getDate()));
+      const day = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - day);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function isoWeekYear(value) {
+      const source = localDateFromInput(value);
+      const date = new Date(Date.UTC(source.getFullYear(), source.getMonth(), source.getDate()));
+      const day = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - day);
+      return date.getUTCFullYear();
     }
 
     function weekKey(value) {
       const monday = dateToMonday(value);
       const sunday = addDays(monday, 6);
-      const year = monday.getFullYear();
+      const year = isoWeekYear(value);
       const week = String(isoWeekNumber(value)).padStart(2, "0");
       return {
         key: `${year}-${week}`,
