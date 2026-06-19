@@ -2114,3 +2114,22 @@ button:disabled {
     text-align: left !important;
   }
 }
+
+
+.print-items-table col:nth-child(2) { width: 4.2% !important; }
+.print-items-table col:nth-child(1) { width: 17% !important; }
+.print-items-table col:nth-child(11) { width: 38% !important; }
+
+@media print {
+  .print-items-table col:nth-child(1) { width: 17% !important; }
+  .print-items-table col:nth-child(2) { width: 4.2% !important; }
+  .print-items-table col:nth-child(3),
+  .print-items-table col:nth-child(4),
+  .print-items-table col:nth-child(5),
+  .print-items-table col:nth-child(6),
+  .print-items-table col:nth-child(7),
+  .print-items-table col:nth-child(8) { width: 4.8% !important; }
+  .print-items-table col:nth-child(9),
+  .print-items-table col:nth-child(10) { width: 5.7% !important; }
+  .print-items-table col:nth-child(11) { width: 38% !important; }
+}
