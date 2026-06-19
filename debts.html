@@ -92,7 +92,11 @@
           <h2>Lezárt tartozások</h2>
           <p id="paidDebtsInfo">Alapból rejtve. Lekérés után jelenik meg.</p>
         </div>
-        <button id="loadPaidDebtsBtn" class="secondary-dark-btn">Lezárt tartozások lekérése</button>
+        <div class="button-row">
+          <button id="loadPaidDebtsBtn" class="secondary-dark-btn">Lezárt tartozások lekérése</button>
+          <button id="loadMorePaidDebtsBtn" class="secondary-dark-btn" style="display:none;">További 20</button>
+          <button id="loadAllPaidDebtsBtn" class="secondary-dark-btn" style="display:none;">Összes lezárt mutatása</button>
+        </div>
       </div>
 
       <div class="table-wrapper" id="paidDebtsWrapper" style="display:none;">
@@ -139,6 +143,8 @@
     const paidDebtsBody = document.getElementById("paidDebtsBody");
     const paidDebtsWrapper = document.getElementById("paidDebtsWrapper");
     const loadPaidDebtsBtn = document.getElementById("loadPaidDebtsBtn");
+    const loadMorePaidDebtsBtn = document.getElementById("loadMorePaidDebtsBtn");
+    const loadAllPaidDebtsBtn = document.getElementById("loadAllPaidDebtsBtn");
     const message = document.getElementById("message");
 
     let currentUser = null;
@@ -147,6 +153,7 @@
     let debts = [];
     let paymentHistoryByDebtId = new Map();
     let showPaidDebts = false;
+    let paidDebtsLimit = 20;
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
@@ -322,13 +329,20 @@
       const filtered = debts.filter(debt => String(debt.name || "").toLowerCase().includes(search));
       const openDebts = filtered.filter(debt => debt.status !== "paid");
       const paidDebts = filtered.filter(debt => debt.status === "paid");
+      const visiblePaidDebts = showPaidDebts ? paidDebts.slice(0, paidDebtsLimit) : [];
+      const hasMorePaidDebts = showPaidDebts && paidDebts.length > visiblePaidDebts.length;
       const openTotal = debts
         .filter(debt => debt.status !== "paid")
         .reduce((sum, debt) => sum + toNumber(debt.remainingAmount), 0);
 
       openDebtTotal.textContent = formatMoney(openTotal);
       openDebtsInfo.textContent = `${openDebts.length} nyitott tartozás`;
-      paidDebtsInfo.textContent = showPaidDebts ? `${paidDebts.length} lezárt tartozás` : `${paidDebts.length} lezárt tartozás van, lekérés után jelenik meg`;
+      paidDebtsInfo.textContent = showPaidDebts
+        ? `${visiblePaidDebts.length} / ${paidDebts.length} lezárt tartozás megjelenítve`
+        : `${paidDebts.length} lezárt tartozás van, lekérés után jelenik meg`;
+
+      loadMorePaidDebtsBtn.style.display = hasMorePaidDebts ? "" : "none";
+      loadAllPaidDebtsBtn.style.display = hasMorePaidDebts ? "" : "none";
 
       openDebtsBody.innerHTML = "";
       paidDebtsBody.innerHTML = "";
@@ -369,7 +383,7 @@
       if (showPaidDebts && !paidDebts.length) {
         paidDebtsBody.innerHTML = `<tr><td colspan="9">Nincs lezárt tartozás.</td></tr>`;
       } else if (showPaidDebts) {
-        paidDebts.forEach(debt => {
+        visiblePaidDebts.forEach(debt => {
           const tr = document.createElement("tr");
 
           tr.innerHTML = `
@@ -386,6 +400,12 @@
 
           paidDebtsBody.appendChild(tr);
         });
+
+        if (hasMorePaidDebts) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td colspan="9"><strong>Még ${paidDebts.length - visiblePaidDebts.length} lezárt tartozás van.</strong> Használd a „További 20” vagy „Összes lezárt mutatása” gombot.</td>`;
+          paidDebtsBody.appendChild(tr);
+        }
       }
     }
 
@@ -614,6 +634,21 @@
     searchInput.addEventListener("input", renderDebts);
     loadPaidDebtsBtn.addEventListener("click", () => {
       showPaidDebts = true;
+      paidDebtsLimit = 20;
+      paidDebtsWrapper.style.display = "";
+      renderDebts();
+    });
+
+    loadMorePaidDebtsBtn.addEventListener("click", () => {
+      showPaidDebts = true;
+      paidDebtsLimit += 20;
+      paidDebtsWrapper.style.display = "";
+      renderDebts();
+    });
+
+    loadAllPaidDebtsBtn.addEventListener("click", () => {
+      showPaidDebts = true;
+      paidDebtsLimit = Number.MAX_SAFE_INTEGER;
       paidDebtsWrapper.style.display = "";
       renderDebts();
     });

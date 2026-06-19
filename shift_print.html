@@ -505,10 +505,12 @@
           categoryConsumption += c.consumption;
 
           const tr = document.createElement("tr");
-          tr.className = c.consumption > 0 ? "print-consumed-row" : "print-no-consumption-row";
+          const consumptionState = c.consumption > 0.0001 ? "consumed" : (c.consumption < -0.0001 ? "negative" : "none");
+          tr.className = consumptionState === "consumed" ? "print-consumed-row" : (consumptionState === "negative" ? "print-negative-consumption-row" : "print-no-consumption-row");
+          const consumptionLabel = consumptionState === "consumed" ? "Volt fogyás" : (consumptionState === "negative" ? "Negatív fogyás" : "Nem volt fogyás");
           const note = itemDetailNote(item, c);
           tr.innerHTML = `
-            <td>${escapeHtml(item.productNameAtShift || "-")}</td>
+            <td>${escapeHtml(item.productNameAtShift || "-")}<br><span class="print-consumption-badge">${escapeHtml(consumptionLabel)}</span></td>
             <td>${escapeHtml(item.unitAtShift || "-")}</td>
             <td>${formatNumber(item.openingFinal ?? item.openingAuto ?? 0)}</td>
             <td>${formatNumber(c.receivedIn)}</td>

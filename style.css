@@ -1752,15 +1752,35 @@ button:disabled {
   }
 }
 
-.print-consumed-row td {
-  background: #ecfdf5;
-}
 
-.print-no-consumption-row td {
-  background: #f9fafb;
-  color: #6b7280;
-}
 
 .stand-note-box .button-row {
   margin-top: 8px;
+}
+
+.print-consumed-row td {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.print-no-consumption-row td {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.print-negative-consumption-row td {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.print-consumption-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
