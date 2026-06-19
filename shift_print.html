@@ -84,7 +84,7 @@
     </section>
 
     <section class="print-section">
-      <h2>Meglévő nyitott tartozások a nyomtatáskor</h2>
+      <h2>Az adott stand lezárásakor nyitott tartozások</h2>
       <div class="print-table-wrapper">
         <table class="print-table">
           <thead>
@@ -290,6 +290,87 @@
       return "Nyitott";
     }
 
+    function toMillis(value) {
+      if (!value) return 0;
+      if (value.toMillis) return value.toMillis();
+      const date = value.toDate ? value.toDate() : new Date(value);
+      const time = date.getTime();
+      return Number.isFinite(time) ? time : 0;
+    }
+
+    function cutoffMillisForShift(shift) {
+      return toMillis(shift.closedAt) || toMillis(shift.updatedAt) || Date.now();
+    }
+
+    function debtCreatedBeforeCutoff(debt, cutoff, selectedShiftId) {
+      if (debt.createdShiftId === selectedShiftId) return true;
+      const created = toMillis(debt.createdAt);
+      if (!created) return true;
+      return created <= cutoff;
+    }
+
+    async function loadDebtPaymentsUntil(cutoff) {
+      const payments = new Map();
+      const shiftsSnap = await getDocs(collection(db, "shifts"));
+
+      for (const shiftDoc of shiftsSnap.docs) {
+        const shiftData = shiftDoc.data();
+        const shiftTime = toMillis(shiftData.closedAt) || toMillis(shiftData.createdAt) || 0;
+
+        if (shiftTime && shiftTime > cutoff) continue;
+
+        const movementSnap = await getDocs(collection(db, "shifts", shiftDoc.id, "moneyMovements"));
+
+        movementSnap.forEach(movementDoc => {
+          const movement = movementDoc.data();
+          if (movement.type !== "debt_payment" || !movement.debtId) return;
+
+          const movementTime = toMillis(movement.createdAt) || shiftTime;
+          if (movementTime && movementTime > cutoff) return;
+
+          payments.set(movement.debtId, (payments.get(movement.debtId) || 0) + toNumber(movement.amount));
+        });
+      }
+
+      return payments;
+    }
+
+    async function loadOpenDebtsAtShiftClose(shift) {
+      const cutoff = cutoffMillisForShift(shift);
+      const debtSnap = await getDocs(collection(db, "debts"));
+      const payments = await loadDebtPaymentsUntil(cutoff);
+      const result = [];
+
+      debtSnap.forEach(item => {
+        const debt = { id: item.id, ...item.data() };
+
+        if (!debtCreatedBeforeCutoff(debt, cutoff, shift.id)) return;
+
+        const originalAmount = toNumber(debt.originalAmount);
+        const paidAmount = Math.min(originalAmount, payments.get(debt.id) || 0);
+        const remainingAmount = originalAmount - paidAmount;
+
+        if (remainingAmount <= 0) return;
+
+        result.push({
+          ...debt,
+          originalAmount,
+          paidAmount,
+          remainingAmount,
+          status: paidAmount > 0 ? "partial" : "open"
+        });
+      });
+
+      result.sort((a, b) => {
+        const aTime = toMillis(a.createdAt);
+        const bTime = toMillis(b.createdAt);
+        if (aTime !== bTime) return aTime - bTime;
+        return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
+      });
+
+      return result;
+    }
+
     function metaLine(label, value) {
       return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
     }
@@ -339,13 +420,7 @@
         return at - bt;
       });
 
-      const debtSnap = await getDocs(collection(db, "debts"));
-      const openDebts = [];
-      debtSnap.forEach(item => {
-        const data = item.data();
-        if (data.status !== "paid") openDebts.push({ id: item.id, ...data });
-      });
-      openDebts.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      const openDebts = await loadOpenDebtsAtShiftClose(shift);
 
       const totalSales = items.reduce((sum, item) => sum + itemCalc(item).salesValue, 0);
 
@@ -443,7 +518,7 @@
 
       debtsBody.innerHTML = "";
       if (!openDebts.length) {
-        debtsBody.innerHTML = `<tr><td colspan="7">Nincs nyitott tartozás.</td></tr>`;
+        debtsBody.innerHTML = `<tr><td colspan="7">A stand lezárásakor nem volt nyitott tartozás.</td></tr>`;
       } else {
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
