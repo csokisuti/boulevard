@@ -1751,3 +1751,16 @@ button:disabled {
     height: 26px;
   }
 }
+
+.print-consumed-row td {
+  background: #ecfdf5;
+}
+
+.print-no-consumption-row td {
+  background: #f9fafb;
+  color: #6b7280;
+}
+
+.stand-note-box .button-row {
+  margin-top: 8px;
+}

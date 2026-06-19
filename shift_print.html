@@ -285,6 +285,14 @@
       return 0;
     }
 
+    function movementPrintPriority(type) {
+      if (type === "previous_handover") return 1;
+      if (type === "lotto_turnover") return 2;
+      if (type === "card_payment") return 3;
+      if (type === "repi") return 4;
+      return 20;
+    }
+
     function debtStatusLabel(status) {
       if (status === "paid") return "Rendezve";
       if (status === "partial") return "Részben fizetve";
@@ -437,6 +445,8 @@
       const movements = [];
       moneySnap.forEach(item => movements.push({ id: item.id, ...item.data() }));
       movements.sort((a, b) => {
+        const priority = movementPrintPriority(a.type) - movementPrintPriority(b.type);
+        if (priority !== 0) return priority;
         const at = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
         const bt = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
         return at - bt;
@@ -495,6 +505,7 @@
           categoryConsumption += c.consumption;
 
           const tr = document.createElement("tr");
+          tr.className = c.consumption > 0 ? "print-consumed-row" : "print-no-consumption-row";
           const note = itemDetailNote(item, c);
           tr.innerHTML = `
             <td>${escapeHtml(item.productNameAtShift || "-")}</td>

@@ -70,7 +70,10 @@
       <div class="stand-note-box" id="standNoteBox" style="display:none;">
         <label for="standNoteInput">Stand megjegyzés</label>
         <textarea id="standNoteInput" rows="3" placeholder="Pl. hiány, átadás, fontos információ a következő standig"></textarea>
-        <p class="muted-cell">Ez a megjegyzés a dashboardon látszik addig, amíg a következő stand le nem lesz zárva.</p>
+        <div class="button-row">
+          <button id="saveStandNoteBtn" class="secondary-dark-btn">Megjegyzés mentése</button>
+        </div>
+        <p class="muted-cell">Ez a megjegyzés külön is menthető, és a dashboardon látszik addig, amíg a következő stand le nem lesz zárva.</p>
       </div>
 
       <div id="message"></div>
@@ -443,6 +446,7 @@
     const productSyncText = document.getElementById("productSyncText");
     const standNoteBox = document.getElementById("standNoteBox");
     const standNoteInput = document.getElementById("standNoteInput");
+    const saveStandNoteBtn = document.getElementById("saveStandNoteBtn");
     const applyProductUpdatesBtn = document.getElementById("applyProductUpdatesBtn");
     const quickProductDetails = document.getElementById("quickProductDetails");
     const quickName = document.getElementById("quickName");
@@ -2235,6 +2239,52 @@
       }, { merge: true });
     }
 
+    async function saveStandNoteOnly() {
+      if (!currentShift || !currentShift.id) {
+        showMessage("Nincs megnyitott stand.", true);
+        return;
+      }
+
+      if (!canModifyCurrentShift()) {
+        showShiftOwnerWarning();
+        return;
+      }
+
+      const note = standNoteInput.value.trim();
+      const batch = writeBatch(db);
+
+      batch.set(doc(db, "shifts", currentShift.id), {
+        standNote: note,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+
+      batch.set(doc(collection(db, "logs")), {
+        action: "stand_note_updated",
+        details: {
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          businessDate: currentShift.businessDate || "",
+          businessDateLabel: currentShift.businessDateLabel || "",
+          note
+        },
+        userId: currentUser.uid,
+        userName: currentUserData.name,
+        userRole: currentUserData.role,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+
+      currentShift = {
+        ...currentShift,
+        standNote: note
+      };
+
+      showMessage("Stand megjegyzés mentve.");
+    }
+
     async function saveDraft() {
       if (isClosedShift() && !canModifyCurrentShift()) {
         showMessage("Ezt a lezárt standot már nem lehet módosítani. Csak az utolsó lezárt stand szerkeszthető, ha nincs új nyitott stand.", true);
@@ -3570,6 +3620,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
     addCardPaymentBtn.addEventListener("click", addCardPayment);
     addLottoTurnoverBtn.addEventListener("click", addLottoTurnover);
     addRepiBtn.addEventListener("click", addRepi);
+    saveStandNoteBtn.addEventListener("click", saveStandNoteOnly);
 
     [cardPaymentsBody, lottoTurnoverBody, repiBody, moneyMovementsBody].forEach(target => {
       target.addEventListener("click", async event => {
@@ -3606,6 +3657,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       standNoteBox.style.display = currentShift ? "" : "none";
       standNoteInput.value = currentShift.standNote || "";
       standNoteInput.disabled = !canModifyCurrentShift();
+      saveStandNoteBtn.style.display = canModifyCurrentShift() ? "" : "none";
       setDefaultFinanceDates();
 
       if (isClosedShift()) {
@@ -3645,6 +3697,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       financeDetails.style.display = "";
       financeFormBox.style.display = "none";
       standNoteBox.style.display = "none";
+      saveStandNoteBtn.style.display = "none";
       quickProductDetails.style.display = "none";
       productSyncPanel.style.display = "none";
       standBody.innerHTML = "";

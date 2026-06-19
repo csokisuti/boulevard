@@ -87,36 +87,6 @@
       </div>
     </section>
 
-    <section class="panel">
-      <h2>Lottó forgalom dátum szerint</h2>
-      <p class="muted-cell">Ez nem a stand dátuma alapján számol, hanem a lottó tétel saját napja alapján. Így a vasárnap-hétfő stand sem csúsztatja el a heti lottóösszesítést.</p>
-
-      <div class="finance-summary-grid admin-review-summary-grid">
-        <div class="finance-card positive">
-          <span>Lottó tételek száma</span>
-          <strong id="lottoItemCount">0</strong>
-        </div>
-        <div class="finance-card positive">
-          <span>Lottóforgalom dátum szerint</span>
-          <strong id="lottoDateTotal">0 Ft</strong>
-        </div>
-      </div>
-
-      <div class="table-wrapper">
-        <table class="data-table reports-table">
-          <thead>
-            <tr>
-              <th>Nap</th>
-              <th>Stand</th>
-              <th>Összeg</th>
-              <th>Megjegyzés</th>
-              <th>Rögzítette</th>
-            </tr>
-          </thead>
-          <tbody id="lottoDateBody"></tbody>
-        </table>
-      </div>
-    </section>
 
     <section class="panel">
       <h2>Heti lottó bontás</h2>
@@ -428,18 +398,20 @@
     }
 
     function renderLottoDateItems() {
+      if (lottoItemCount) lottoItemCount.textContent = String(lottoItems.length);
+      if (lottoDateTotal) {
+        const total = lottoItems.reduce((sum, item) => sum + toNumber(item.amount), 0);
+        lottoDateTotal.textContent = formatMoney(total);
+      }
+
+      if (!lottoDateBody) return;
+
       lottoDateBody.innerHTML = "";
 
       if (!lottoItems.length) {
         lottoDateBody.innerHTML = `<tr><td colspan="5">Nincs lottó tétel a kiválasztott dátumtartományban.</td></tr>`;
-        lottoItemCount.textContent = "0";
-        lottoDateTotal.textContent = formatMoney(0);
         return;
       }
-
-      const total = lottoItems.reduce((sum, item) => sum + toNumber(item.amount), 0);
-      lottoItemCount.textContent = lottoItems.length;
-      lottoDateTotal.textContent = formatMoney(total);
 
       lottoItems.forEach(item => {
         const tr = document.createElement("tr");
