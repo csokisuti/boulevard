@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Boulevard - Tartozások</title>
   <link rel="stylesheet" href="style.css">
+  <script src="app-ui.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -65,10 +66,19 @@
         <input id="searchInput" type="text" placeholder="Keresés név szerint...">
       </div>
 
+      <div id="bulkDebtBar" class="bulk-debt-bar" style="display:none;">
+        <div>
+          <strong id="bulkDebtSummary">0 tartozás kijelölve</strong>
+          <div class="muted-cell">A kijelölt tartozások külön-külön kerülnek a saját befizetési naplójukba.</div>
+        </div>
+        <button id="paySelectedDebtsBtn">Kijelöltek együttes kifizetése</button>
+      </div>
+
       <div class="table-wrapper">
         <table class="data-table debts-table">
           <thead>
             <tr>
+              <th><input id="selectAllVisibleDebts" class="bulk-debt-check" type="checkbox" aria-label="Összes látható tartozás kijelölése"></th>
               <th>Dátum</th>
               <th>Név</th>
               <th>Eredeti összeg</th>
@@ -125,7 +135,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
@@ -140,6 +150,10 @@
     const openDebtsInfo = document.getElementById("openDebtsInfo");
     const paidDebtsInfo = document.getElementById("paidDebtsInfo");
     const openDebtsBody = document.getElementById("openDebtsBody");
+    const bulkDebtBar = document.getElementById("bulkDebtBar");
+    const bulkDebtSummary = document.getElementById("bulkDebtSummary");
+    const paySelectedDebtsBtn = document.getElementById("paySelectedDebtsBtn");
+    const selectAllVisibleDebts = document.getElementById("selectAllVisibleDebts");
     const paidDebtsBody = document.getElementById("paidDebtsBody");
     const paidDebtsWrapper = document.getElementById("paidDebtsWrapper");
     const loadPaidDebtsBtn = document.getElementById("loadPaidDebtsBtn");
@@ -154,6 +168,7 @@
     let paymentHistoryByDebtId = new Map();
     let showPaidDebts = false;
     let paidDebtsLimit = 20;
+    const selectedDebtIds = new Set();
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
@@ -223,38 +238,29 @@
 
     async function loadPaymentHistory() {
       paymentHistoryByDebtId = new Map();
+      const paymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_payment"));
+      const movementsSnap = await getDocs(paymentsQuery);
 
-      const shiftsSnap = await getDocs(collection(db, "shifts"));
+      movementsSnap.forEach(item => {
+        const data = item.data();
+        const debtId = data.debtId || "";
+        if (!debtId) return;
 
-      for (const shiftDoc of shiftsSnap.docs) {
-        const shiftData = shiftDoc.data();
-        const movementsSnap = await getDocs(collection(db, "shifts", shiftDoc.id, "moneyMovements"));
+        if (!paymentHistoryByDebtId.has(debtId)) {
+          paymentHistoryByDebtId.set(debtId, []);
+        }
 
-        movementsSnap.forEach(item => {
-          const data = item.data();
-
-          if (data.type !== "debt_payment") return;
-
-          const debtId = data.debtId || "";
-
-          if (!debtId) return;
-
-          if (!paymentHistoryByDebtId.has(debtId)) {
-            paymentHistoryByDebtId.set(debtId, []);
-          }
-
-          paymentHistoryByDebtId.get(debtId).push({
-            id: item.id,
-            shiftId: shiftDoc.id,
-            shiftLabel: data.shiftLabel || shiftData.shiftLabel || "",
-            amount: toNumber(data.amount),
-            personName: data.personName || "",
-            note: data.note || "",
-            createdAt: data.createdAt || null,
-            createdByName: data.createdByName || ""
-          });
+        paymentHistoryByDebtId.get(debtId).push({
+          id: item.id,
+          shiftId: data.shiftId || item.ref.parent.parent?.id || "",
+          shiftLabel: data.shiftLabel || "",
+          amount: toNumber(data.amount),
+          personName: data.personName || "",
+          note: data.note || "",
+          createdAt: data.createdAt || null,
+          createdByName: data.createdByName || ""
         });
-      }
+      });
 
       paymentHistoryByDebtId.forEach(payments => {
         payments.sort((a, b) => {
@@ -336,6 +342,9 @@
         .reduce((sum, debt) => sum + toNumber(debt.remainingAmount), 0);
 
       openDebtTotal.textContent = formatMoney(openTotal);
+      selectedDebtIds.forEach(id => {
+        if (!debts.some(debt => debt.id === id && debt.status !== "paid")) selectedDebtIds.delete(id);
+      });
       openDebtsInfo.textContent = `${openDebts.length} nyitott tartozás`;
       paidDebtsInfo.textContent = showPaidDebts
         ? `${visiblePaidDebts.length} / ${paidDebts.length} lezárt tartozás megjelenítve`
@@ -353,13 +362,16 @@
       }
 
       if (!openDebts.length) {
-        openDebtsBody.innerHTML = `<tr><td colspan="10">Nincs nyitott tartozás.</td></tr>`;
+        openDebtsBody.innerHTML = `<tr><td colspan="11">Nincs nyitott tartozás.</td></tr>`;
       } else {
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
           const canPay = !!currentShift;
+          const isSelected = selectedDebtIds.has(debt.id);
+          if (isSelected) tr.classList.add("debt-row-selected");
 
           tr.innerHTML = `
+            <td><input class="bulk-debt-check debt-select-check" data-id="${debt.id}" type="checkbox" ${isSelected ? "checked" : ""} ${canPay ? "" : "disabled"} aria-label="${escapeHtml(debt.name || "Tartozás")} kijelölése"></td>
             <td>${formatDateTime(debt.createdAt)}</td>
             <td>${escapeHtml(debt.name || "")}</td>
             <td>${formatMoney(debt.originalAmount)}</td>
@@ -379,6 +391,8 @@
           openDebtsBody.appendChild(tr);
         });
       }
+
+      updateBulkDebtBar(openDebts);
 
       if (showPaidDebts && !paidDebts.length) {
         paidDebtsBody.innerHTML = `<tr><td colspan="9">Nincs lezárt tartozás.</td></tr>`;
@@ -407,6 +421,113 @@
           paidDebtsBody.appendChild(tr);
         }
       }
+    }
+
+    function selectedDebts() {
+      return debts.filter(debt => selectedDebtIds.has(debt.id) && debt.status !== "paid");
+    }
+
+    function updateBulkDebtBar(visibleOpenDebts = null) {
+      const selected = selectedDebts();
+      const total = selected.reduce((sum, debt) => sum + toNumber(debt.remainingAmount), 0);
+      bulkDebtBar.style.display = selected.length ? "" : "none";
+      bulkDebtSummary.textContent = `${selected.length} tartozás kijelölve – összesen ${formatMoney(total)}`;
+      paySelectedDebtsBtn.disabled = !currentShift || selected.length < 2;
+
+      const visible = visibleOpenDebts || debts.filter(debt => debt.status !== "paid");
+      const selectableVisible = visible.filter(debt => currentShift && debt.status !== "paid");
+      const selectedVisibleCount = selectableVisible.filter(debt => selectedDebtIds.has(debt.id)).length;
+      selectAllVisibleDebts.checked = selectableVisible.length > 0 && selectedVisibleCount === selectableVisible.length;
+      selectAllVisibleDebts.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < selectableVisible.length;
+    }
+
+    function toggleDebtSelection(debtId, checked) {
+      const debt = debts.find(item => item.id === debtId);
+      if (!debt) return;
+
+      if (checked) {
+        selectedDebtIds.add(debtId);
+      } else {
+        selectedDebtIds.delete(debtId);
+      }
+
+      renderDebts();
+    }
+
+    async function paySelectedDebts() {
+      if (!currentShift) {
+        showMessage("Befizetést csak nyitott standhoz lehet rögzíteni.", true);
+        return;
+      }
+
+      const selected = selectedDebts();
+      if (selected.length < 2) {
+        showMessage("Az összevont kifizetéshez legalább két tartozást jelölj ki.", true);
+        return;
+      }
+
+      const total = selected.reduce((sum, debt) => sum + toNumber(debt.remainingAmount), 0);
+      if (!confirm(`Biztosan rendezed a kijelölt ${selected.length} tartozást, összesen ${formatMoney(total)} értékben?`)) return;
+
+      const batch = writeBatch(db);
+
+      selected.forEach(debt => {
+        const amount = toNumber(debt.remainingAmount);
+        const paidAfter = toNumber(debt.paidAmount) + amount;
+
+        batch.set(doc(db, "debts", debt.id), {
+          paidAmount: paidAfter,
+          remainingAmount: 0,
+          status: "paid",
+          lastPaymentShiftId: currentShift.id,
+          lastPaymentShiftLabel: currentShift.shiftLabel || "",
+          lastPaymentAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        }, { merge: true });
+
+        const movementRef = doc(collection(db, "shifts", currentShift.id, "moneyMovements"));
+        batch.set(movementRef, {
+          type: "debt_payment",
+          amount,
+          personName: debt.name || "",
+          note: "Összevont tartozásbefizetés",
+          debtId: debt.id,
+          shiftId: currentShift.id,
+          shiftLabel: currentShift.shiftLabel || "",
+          createdAt: serverTimestamp(),
+          createdBy: currentUser.uid,
+          createdByName: currentUserData.name
+        });
+
+        const logRef = doc(collection(db, "logs"));
+        batch.set(logRef, {
+          action: "debt_payment_from_debts_page",
+          details: {
+            shiftId: currentShift.id,
+            shiftLabel: currentShift.shiftLabel || "",
+            debtId: debt.id,
+            name: debt.name || "",
+            amount,
+            remainingBefore: amount,
+            remainingAfter: 0,
+            statusAfter: "paid",
+            effect: movementEffect("debt_payment", amount)
+          },
+          userId: currentUser.uid,
+          userName: currentUserData.name,
+          userRole: currentUserData.role,
+          createdAt: serverTimestamp()
+        });
+      });
+
+      await batch.commit();
+      await updateShiftMoneyTotals();
+      selectedDebtIds.clear();
+      showMessage(`${selected.length} tartozás együttesen rendezve, összesen ${formatMoney(total)}.`);
+      await loadPaymentHistory();
+      await loadDebts();
     }
 
     async function updateShiftMoneyTotals() {
@@ -629,6 +750,25 @@
         await payDebt(id, amount);
       }
     });
+
+    openDebtsBody.addEventListener("change", event => {
+      const checkbox = event.target.closest(".debt-select-check");
+      if (checkbox) toggleDebtSelection(checkbox.dataset.id, checkbox.checked);
+    });
+
+    selectAllVisibleDebts.addEventListener("change", () => {
+      const search = searchInput.value.trim().toLowerCase();
+      const visible = debts.filter(debt => debt.status !== "paid" && String(debt.name || "").toLowerCase().includes(search));
+
+      if (!selectAllVisibleDebts.checked) {
+        visible.forEach(debt => selectedDebtIds.delete(debt.id));
+      } else if (visible.length) {
+        visible.forEach(debt => selectedDebtIds.add(debt.id));
+      }
+      renderDebts();
+    });
+
+    paySelectedDebtsBtn.addEventListener("click", paySelectedDebts);
 
     createDebtBtn.addEventListener("click", createDebt);
     searchInput.addEventListener("input", renderDebts);
