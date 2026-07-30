@@ -574,7 +574,6 @@
         updatedBy: currentUser.uid,
         updatedByName: currentUserData.name
       }, { merge: true });
-      await updateCatalogVersion();
       await addDoc(collection(db, "logs"), {
         action: "product_reviewed",
         details: { productId, productName: product ? product.name || "" : "", source: "admin_review" },
@@ -644,7 +643,6 @@
           updatedBy: currentUser.uid,
           updatedByName: currentUserData.name
         }, { merge: true });
-        await updateCatalogVersion();
       }
 
       await addDoc(collection(db, "logs"), {
