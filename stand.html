@@ -3457,7 +3457,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
           productNameAtShift: product.name || item.productNameAtShift || "",
           unitAtShift: product.unit || item.unitAtShift || "db",
           categoryAtShift: product.category || item.categoryAtShift || "",
-          sortOrderAtShift: product.sortOrder || item.sortOrderAtShift || 0,
+          categorySortOrderAtShift: product.categorySortOrder ?? categorySortValueByName(product.category || "Egyéb"),
+          sortOrderAtShift: product.sortOrder ?? item.sortOrderAtShift ?? 0,
           salePriceAtShift: keepStandPrice ? item.salePriceAtShift : catalogSalePrice,
           purchasePriceAtShift: product.purchasePrice ?? item.purchasePriceAtShift ?? 0,
           updatedAt: serverTimestamp(),
@@ -3470,6 +3471,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         if (String(item.productNameAtShift || "") !== String(update.productNameAtShift || "")) productChanges.push({ field: "név", before: item.productNameAtShift || "", after: update.productNameAtShift || "" });
         if (String(item.categoryAtShift || "") !== String(update.categoryAtShift || "")) productChanges.push({ field: "kategória", before: item.categoryAtShift || "", after: update.categoryAtShift || "" });
         if (String(item.unitAtShift || "") !== String(update.unitAtShift || "")) productChanges.push({ field: "mértékegység", before: item.unitAtShift || "", after: update.unitAtShift || "" });
+        if (toNumber(item.categorySortOrderAtShift) !== toNumber(update.categorySortOrderAtShift)) productChanges.push({ field: "kategóriasorrend", before: toNumber(item.categorySortOrderAtShift), after: toNumber(update.categorySortOrderAtShift) });
+        if (toNumber(item.sortOrderAtShift) !== toNumber(update.sortOrderAtShift)) productChanges.push({ field: "terméksorrend", before: toNumber(item.sortOrderAtShift), after: toNumber(update.sortOrderAtShift) });
 
         const salePriceChanged = toNumber(item.salePriceAtShift) !== toNumber(update.salePriceAtShift);
 
