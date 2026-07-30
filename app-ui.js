@@ -110,9 +110,5 @@
       saveTimeout = setTimeout(() => finishSave("", false), 20000);
     }, true);
 
-    setTimeout(() => {
-      const overlay = document.getElementById("appLoadingOverlay");
-      if (overlay) overlay.classList.add("is-hidden");
-    }, 20000);
   });
 })();

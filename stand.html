@@ -315,7 +315,7 @@
 
             <div>
               <label for="lottoAmount">Összeg</label>
-              <input id="lottoAmount" type="number" min="0">
+              <input id="lottoAmount" type="number">
             </div>
 
             <div>
@@ -2560,8 +2560,9 @@
         return false;
       }
 
-      if (amount <= 0) {
-        showMessage("Az összegnek nagyobbnak kell lennie nullánál.", true);
+      const negativeAllowed = type === "lotto_turnover";
+      if ((!negativeAllowed && amount <= 0) || (negativeAllowed && amount === 0)) {
+        showMessage(negativeAllowed ? "A lottó forgalom nem lehet nulla." : "Az összegnek nagyobbnak kell lennie nullánál.", true);
         return false;
       }
 
@@ -3140,8 +3141,9 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       const newAmount = promptNumber(`${movementTypeLabel(item.type)} új összege`, oldAmount);
       if (newAmount === null) return;
 
-      if (newAmount <= 0) {
-        showMessage("Az összegnek nagyobbnak kell lennie nullánál.", true);
+      const negativeAllowed = item.type === "lotto_turnover";
+      if ((!negativeAllowed && newAmount <= 0) || (negativeAllowed && newAmount === 0)) {
+        showMessage(negativeAllowed ? "A lottó forgalom nem lehet nulla." : "Az összegnek nagyobbnak kell lennie nullánál.", true);
         return;
       }
 

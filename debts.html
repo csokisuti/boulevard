@@ -166,6 +166,7 @@
     let currentShift = null;
     let debts = [];
     let paymentHistoryByDebtId = new Map();
+    let paymentHistoryState = "loading";
     let showPaidDebts = false;
     let paidDebtsLimit = 20;
     const selectedDebtIds = new Set();
@@ -237,6 +238,7 @@
     }
 
     async function loadPaymentHistory() {
+      paymentHistoryState = "loading";
       paymentHistoryByDebtId = new Map();
       const paymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_payment"));
       const movementsSnap = await getDocs(paymentsQuery);
@@ -269,9 +271,19 @@
           return aTime - bTime;
         });
       });
+
+      paymentHistoryState = "loaded";
     }
 
     function paymentHistoryHtml(debt) {
+      if (paymentHistoryState === "loading") {
+        return `<span class="muted-cell">Napló betöltése…</span>`;
+      }
+
+      if (paymentHistoryState === "error") {
+        return `<span class="muted-cell">A részletes napló most nem érhető el.</span>`;
+      }
+
       const payments = paymentHistoryByDebtId.get(debt.id) || [];
 
       if (!payments.length) {
@@ -328,6 +340,19 @@
       });
 
       renderDebts();
+    }
+
+    async function refreshDebtsAndHistory() {
+      paymentHistoryState = "loading";
+      await loadDebts();
+
+      loadPaymentHistory()
+        .then(() => renderDebts())
+        .catch(error => {
+          console.error("A befizetési napló betöltése sikertelen:", error);
+          paymentHistoryState = "error";
+          renderDebts();
+        });
     }
 
     function renderDebts() {
@@ -526,8 +551,7 @@
       await updateShiftMoneyTotals();
       selectedDebtIds.clear();
       showMessage(`${selected.length} tartozás együttesen rendezve, összesen ${formatMoney(total)}.`);
-      await loadPaymentHistory();
-      await loadDebts();
+      await refreshDebtsAndHistory();
     }
 
     async function updateShiftMoneyTotals() {
@@ -644,8 +668,7 @@
       newDebtNote.value = "";
 
       showMessage("Tartozás felírva és levonva az aktuális pénztárból.");
-      await loadPaymentHistory();
-      await loadDebts();
+      await refreshDebtsAndHistory();
     }
 
     async function payDebt(debtId, amount) {
@@ -732,8 +755,7 @@
       await updateShiftMoneyTotals();
 
       showMessage("Befizetés rögzítve és hozzáadva az aktuális pénztárhoz.");
-      await loadPaymentHistory();
-      await loadDebts();
+      await refreshDebtsAndHistory();
     }
 
     document.addEventListener("click", async (event) => {
@@ -827,8 +849,7 @@
         newDebtFormBox.style.display = "none";
       }
 
-      await loadPaymentHistory();
-      await loadDebts();
+      await refreshDebtsAndHistory();
     });
   </script>
 </body>
