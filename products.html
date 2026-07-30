@@ -58,6 +58,8 @@
           <select id="unit">
             <option value="db">db</option>
             <option value="liter">liter</option>
+            <option value="cl">cl</option>
+            <option value="gramm">gramm</option>
             <option value="számoló">számoló</option>
           </select>
         </div>
@@ -155,7 +157,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -241,6 +243,37 @@
       return String(product.name || "").trim();
     }
 
+    function hasSortOrder(value) {
+      return value !== "" && value !== null && value !== undefined && Number.isFinite(Number(value));
+    }
+
+    function categorySortValue(category) {
+      if (category && hasSortOrder(category.sortOrder)) return toNumber(category.sortOrder);
+      return 999999;
+    }
+
+    function categoryCompareByOrder(a, b) {
+      const orderCompare = categorySortValue(a) - categorySortValue(b);
+      if (orderCompare !== 0) return orderCompare;
+      return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
+    }
+
+    function categorySortValueByName(name) {
+      const normalized = String(name || "Egyéb").trim() || "Egyéb";
+      const category = categories.find(item => String(item.name || "") === normalized);
+      return category ? categorySortValue(category) : 999999;
+    }
+
+    function productSortValue(product) {
+      return product && hasSortOrder(product.sortOrder) ? toNumber(product.sortOrder) : 999999;
+    }
+
+    function productCompareWithinCategory(a, b) {
+      const orderCompare = productSortValue(a) - productSortValue(b);
+      if (orderCompare !== 0) return orderCompare;
+      return productName(a).localeCompare(productName(b), "hu", { sensitivity: "base" });
+    }
+
     function showMessage(text, error = false) {
       message.textContent = text;
       message.style.color = error ? "#b91c1c" : "#047857";
@@ -274,13 +307,19 @@
 
     function sortProductsForDisplay(products) {
       return [...products].sort((a, b) => {
+        const categoryOrderCompare = categorySortValueByName(categoryName(a)) - categorySortValueByName(categoryName(b));
+
+        if (categoryOrderCompare !== 0) {
+          return categoryOrderCompare;
+        }
+
         const categoryCompare = categoryName(a).localeCompare(categoryName(b), "hu", { sensitivity: "base" });
 
         if (categoryCompare !== 0) {
           return categoryCompare;
         }
 
-        return productName(a).localeCompare(productName(b), "hu", { sensitivity: "base" });
+        return productCompareWithinCategory(a, b);
       });
     }
 
@@ -296,7 +335,7 @@
         });
       });
 
-      categories.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" }));
+      categories.sort(categoryCompareByOrder);
 
       renderCategoryOptions(selectedValue);
       renderCategoryList();
@@ -336,13 +375,17 @@
         return;
       }
 
-      categories.forEach(category => {
+      categories.forEach((category, index) => {
         const usedCount = allProducts.filter(product => product.category === category.name).length;
         const div = document.createElement("div");
         div.className = "category-chip";
         div.innerHTML = `
           <span>${escapeHtml(category.name)}</span>
           <small>${usedCount} termék</small>
+          ${can("canReorderProducts") ? `
+            <button class="small-btn" data-action="move-category-up" data-id="${category.id}" ${index === 0 ? "disabled" : ""} title="Kategória feljebb">↑</button>
+            <button class="small-btn" data-action="move-category-down" data-id="${category.id}" ${index === categories.length - 1 ? "disabled" : ""} title="Kategória lejjebb">↓</button>
+          ` : ""}
           <button class="category-delete-btn" data-action="delete-category" data-id="${category.id}">Törlés</button>
         `;
 
@@ -371,8 +414,13 @@
 
       const ref = doc(collection(db, "categories"));
 
+      const existingCategoryOrders = categories
+        .map(category => categorySortValue(category))
+        .filter(value => value < 999999);
+
       await setDoc(ref, {
         name,
+        sortOrder: existingCategoryOrders.length ? Math.max(...existingCategoryOrders) + 1000 : (categories.length + 1) * 1000,
         createdAt: serverTimestamp(),
         createdBy: currentUser.uid,
         createdByName: currentUserData.name
@@ -469,6 +517,83 @@
           option.textContent = `${product.name} után`;
           insertAfter.appendChild(option);
         });
+    }
+
+    async function moveCategory(categoryId, direction) {
+      if (!can("canReorderProducts")) {
+        showMessage("Nincs jogosultságod a kategóriasorrend módosításához.", true);
+        return;
+      }
+
+      const ordered = [...categories].sort(categoryCompareByOrder);
+      const index = ordered.findIndex(category => category.id === categoryId);
+      const targetIndex = index + direction;
+
+      if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+
+      [ordered[index], ordered[targetIndex]] = [ordered[targetIndex], ordered[index]];
+
+      const batch = writeBatch(db);
+      ordered.forEach((category, orderIndex) => {
+        batch.set(doc(db, "categories", category.id), {
+          sortOrder: (orderIndex + 1) * 1000,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        }, { merge: true });
+      });
+      await batch.commit();
+
+      await writeLog("category_order_changed", {
+        categoryId,
+        categoryName: ordered[targetIndex]?.name || "",
+        direction: direction < 0 ? "up" : "down"
+      });
+      await updateCatalogVersion();
+      await loadCategories();
+      await loadProducts();
+      showMessage("Kategóriasorrend módosítva. Nyitott standnál a frissítés gombbal alkalmazható.");
+    }
+
+    async function moveProduct(productId, direction) {
+      if (!can("canReorderProducts")) {
+        showMessage("Nincs jogosultságod a terméksorrend módosításához.", true);
+        return;
+      }
+
+      const product = allProducts.find(item => item.id === productId);
+      if (!product) return;
+
+      const ordered = allProducts
+        .filter(item => categoryName(item) === categoryName(product) && (item.active === false) === (product.active === false))
+        .sort(productCompareWithinCategory);
+      const index = ordered.findIndex(item => item.id === productId);
+      const targetIndex = index + direction;
+
+      if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+
+      [ordered[index], ordered[targetIndex]] = [ordered[targetIndex], ordered[index]];
+
+      const batch = writeBatch(db);
+      ordered.forEach((item, orderIndex) => {
+        batch.set(doc(db, "products", item.id), {
+          sortOrder: (orderIndex + 1) * 1000,
+          updatedAt: serverTimestamp(),
+          updatedBy: currentUser.uid,
+          updatedByName: currentUserData.name
+        }, { merge: true });
+      });
+      await batch.commit();
+
+      await writeLog("product_order_changed", {
+        productId,
+        productName: product.name || "",
+        category: categoryName(product),
+        direction: direction < 0 ? "up" : "down"
+      });
+      await updateCatalogVersion();
+      await loadProducts();
+      showMessage("Terméksorrend módosítva. Nyitott standnál a frissítés gombbal alkalmazható.");
     }
 
     function calculateSortOrder(selectedValue, oldProduct) {
@@ -655,6 +780,12 @@
         const activeText = product.active === false ? "Passzív" : "Aktív";
         const toggleText = product.active === false ? "Aktiválás" : "Passzívvá tesz";
         const toggleAction = product.active === false ? "activate" : "deactivate";
+        const orderedPeers = allProducts
+          .filter(item => categoryName(item) === categoryName(product) && (item.active === false) === (product.active === false))
+          .sort(productCompareWithinCategory);
+        const peerIndex = orderedPeers.findIndex(item => item.id === product.id);
+        const canMoveUp = peerIndex > 0;
+        const canMoveDown = peerIndex >= 0 && peerIndex < orderedPeers.length - 1;
 
         tr.innerHTML = `
           <td>${escapeHtml(product.name || "")}</td>
@@ -666,6 +797,8 @@
           <td>${activeText}</td>
           <td>${product.adminReviewNeeded ? "Ellenőrizendő" : "Rendben"}</td>
           <td class="action-cell">
+            ${can("canReorderProducts") ? `<button class="small-btn" data-action="move-product-up" data-id="${product.id}" ${canMoveUp ? "" : "disabled"} title="Termék feljebb">↑</button>` : ""}
+            ${can("canReorderProducts") ? `<button class="small-btn" data-action="move-product-down" data-id="${product.id}" ${canMoveDown ? "" : "disabled"} title="Termék lejjebb">↓</button>` : ""}
             ${can("canEditProducts") ? `<button class="small-btn" data-action="edit" data-id="${product.id}">Szerkesztés</button>` : ""}
             ${can("canChangeProductStatus") ? `<button class="small-btn" data-action="${toggleAction}" data-id="${product.id}" ${toggleAction === "deactivate" && !canDeactivateProduct(product) ? "disabled title='Csak nulla készletnél passziválható'" : ""}>${toggleAction === "deactivate" && !canDeactivateProduct(product) ? "Passzívvá tesz (készlet ≠ 0)" : toggleText}</button>` : ""}
             ${can("canReviewProducts") && product.adminReviewNeeded ? `<button class="small-btn" data-action="reviewed" data-id="${product.id}">Ellenőrizve</button>` : ""}
@@ -702,7 +835,17 @@
       formSummary.textContent = `Termék szerkesztése: ${product.name || ""}`;
       nameInput.value = product.name || "";
       renderCategoryOptions(product.category || "");
-      unitInput.value = ["db", "liter", "számoló"].includes(product.unit) ? product.unit : "db";
+      const knownUnits = ["db", "liter", "cl", "gramm", "számoló"];
+      const currentUnit = String(product.unit || "db");
+
+      if (!knownUnits.includes(currentUnit) && !Array.from(unitInput.options).some(option => option.value === currentUnit)) {
+        const legacyOption = document.createElement("option");
+        legacyOption.value = currentUnit;
+        legacyOption.textContent = `${currentUnit} (meglévő)`;
+        unitInput.appendChild(legacyOption);
+      }
+
+      unitInput.value = currentUnit;
       salePriceInput.value = product.salePrice || 0;
       purchasePriceInput.value = product.purchasePrice || 0;
       activeInput.value = product.active === false ? "false" : "true";
@@ -909,7 +1052,6 @@
         productName: product?.name || ""
       });
 
-      await updateCatalogVersion();
       await loadProducts();
       showMessage("Termék ellenőrizve.");
     }
@@ -939,6 +1081,22 @@
 
       if (action === "reviewed") {
         await markReviewed(id);
+      }
+
+      if (action === "move-product-up") {
+        await moveProduct(id, -1);
+      }
+
+      if (action === "move-product-down") {
+        await moveProduct(id, 1);
+      }
+
+      if (action === "move-category-up") {
+        await moveCategory(id, -1);
+      }
+
+      if (action === "move-category-down") {
+        await moveCategory(id, 1);
       }
 
       if (action === "deactivate") {
