@@ -509,6 +509,7 @@
     let rows = [];
     let originalRows = [];
     let moneyMovements = [];
+    let moneyMovementSaving = false;
     let openDebts = [];
     let collapsedCategories = {};
     let mobileCardMode = false;
@@ -2914,6 +2915,10 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
     }
 
     async function addMoneyMovement() {
+      if (moneyMovementSaving) return;
+      moneyMovementSaving = true;
+
+      try {
       const selectedType = moneyType.value;
 
       const closedFinanceBypass = canBypassFinancePermissionsForClosedShift();
@@ -3082,6 +3087,9 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       debtSelectBox.style.display = "none";
 
       await refreshMoneyAfterSave("Pénzmozgás mentve.");
+      } finally {
+        moneyMovementSaving = false;
+      }
     }
 
     async function adjustedDebtAfterPaymentChange(debtId, oldAmount, newAmount) {

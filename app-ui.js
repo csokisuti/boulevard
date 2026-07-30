@@ -57,6 +57,7 @@
       activeSaveButton.disabled = false;
       activeSaveButton.classList.remove("is-saving");
       activeSaveButton.textContent = originalSaveText;
+      delete activeSaveButton.dataset.appBusy;
     }
 
     activeSaveButton = null;
@@ -93,10 +94,13 @@
       const button = event.target.closest("button");
       if (!button || button.disabled || !SAVE_PATTERN.test(button.textContent) || /nyomtatás|pdf/i.test(button.textContent)) return;
 
-      if (activeSaveButton && activeSaveButton !== button) {
-        finishSave("", false);
+      if (button.dataset.appBusy === "1" || activeSaveButton) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
       }
 
+      button.dataset.appBusy = "1";
       activeSaveButton = button;
       originalSaveText = button.textContent;
       const message = document.getElementById("message");
@@ -106,6 +110,9 @@
       }
       button.classList.add("is-saving");
       button.textContent = "Mentés folyamatban…";
+      queueMicrotask(() => {
+        if (button.dataset.appBusy === "1") button.disabled = true;
+      });
 
       saveTimeout = setTimeout(() => finishSave("", false), 20000);
     }, true);

@@ -136,6 +136,7 @@
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { hasPermission } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
@@ -169,7 +170,9 @@
     let paymentHistoryState = "loading";
     let showPaidDebts = false;
     let paidDebtsLimit = 20;
+    let createDebtSaving = false;
     const selectedDebtIds = new Set();
+    const deletingDebtIds = new Set();
 
     backBtn.addEventListener("click", () => {
       window.location.href = "dashboard.html";
@@ -210,6 +213,19 @@
       if (type === "debt_create") return -amount;
       if (type === "debt_payment") return amount;
       return 0;
+    }
+
+    function canDeleteCurrentShiftDebt(debt) {
+      if (!currentUser || !currentUserData || !currentShift || !debt) return false;
+
+      const isAdmin = currentUserData.role === "admin";
+      const isShiftOwner = currentShift.assignedUserId === currentUser.uid;
+
+      return (isAdmin || isShiftOwner) &&
+        hasPermission(currentUserData, "canDeleteTodayDebt") &&
+        debt.createdShiftId === currentShift.id &&
+        debt.status !== "paid" &&
+        toNumber(debt.paidAmount) === 0;
     }
 
     async function writeLog(action, details) {
@@ -392,6 +408,7 @@
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
           const canPay = !!currentShift;
+          const canDelete = canDeleteCurrentShiftDebt(debt);
           const isSelected = selectedDebtIds.has(debt.id);
           if (isSelected) tr.classList.add("debt-row-selected");
 
@@ -410,6 +427,7 @@
             </td>
             <td>
               <button class="small-btn" data-action="pay-debt" data-id="${debt.id}" ${canPay ? "" : "disabled"}>Befizetés</button>
+              ${canDelete ? `<button class="danger-small-btn" data-action="delete-debt" data-id="${debt.id}">Törlés</button>` : ""}
             </td>
           `;
 
@@ -589,6 +607,10 @@
     }
 
     async function createDebt() {
+      if (createDebtSaving) return;
+      createDebtSaving = true;
+
+      try {
       if (!currentShift) {
         showMessage("Új tartozást csak nyitott standhoz lehet felírni, mert az aktuális pénztárból kell levonni.", true);
         return;
@@ -669,6 +691,73 @@
 
       showMessage("Tartozás felírva és levonva az aktuális pénztárból.");
       await refreshDebtsAndHistory();
+      } finally {
+        createDebtSaving = false;
+      }
+    }
+
+    async function deleteCurrentShiftDebt(debtId) {
+      if (deletingDebtIds.has(debtId)) return;
+
+      const debt = debts.find(item => item.id === debtId);
+      if (!debt) {
+        showMessage("Nem található ez a tartozás.", true);
+        return;
+      }
+
+      if (!canDeleteCurrentShiftDebt(debt)) {
+        showMessage("Csak admin vagy az aktuális nyitott standhoz rendelt, törlési jogosultsággal rendelkező dolgozó törölheti ezt a még be nem fizetett tartozást.", true);
+        return;
+      }
+
+      if (!confirm(`Biztosan törlöd ezt a tartozást?\n${debt.name}: ${formatMoney(debt.originalAmount)}`)) return;
+
+      deletingDebtIds.add(debtId);
+
+      try {
+        const movementsSnap = await getDocs(collection(db, "shifts", currentShift.id, "moneyMovements"));
+        const batch = writeBatch(db);
+        const deletedMovementIds = [];
+
+        movementsSnap.forEach(item => {
+          const data = item.data();
+          if (data.type === "debt_create" && data.debtId === debtId) {
+            deletedMovementIds.push(item.id);
+            batch.delete(doc(db, "shifts", currentShift.id, "moneyMovements", item.id));
+          }
+        });
+
+        batch.delete(doc(db, "debts", debtId));
+        batch.set(doc(collection(db, "logs")), {
+          action: "current_shift_debt_deleted_from_debts_page",
+          details: {
+            shiftId: currentShift.id,
+            shiftLabel: currentShift.shiftLabel || "",
+            debtId,
+            debt: {
+              name: debt.name || "",
+              originalAmount: toNumber(debt.originalAmount),
+              paidAmount: toNumber(debt.paidAmount),
+              remainingAmount: toNumber(debt.remainingAmount),
+              note: debt.note || ""
+            },
+            deletedMovementIds,
+            effectRemoved: movementEffect("debt_create", toNumber(debt.originalAmount))
+          },
+          userId: currentUser.uid,
+          userName: currentUserData.name,
+          userRole: currentUserData.role,
+          createdAt: serverTimestamp()
+        });
+
+        await batch.commit();
+        await updateShiftMoneyTotals();
+        selectedDebtIds.delete(debtId);
+        showMessage("Tartozás és a kapcsolódó pénzmozgás törölve, a leadó újraszámolva.");
+        await refreshDebtsAndHistory();
+      } finally {
+        deletingDebtIds.delete(debtId);
+      }
     }
 
     async function payDebt(debtId, amount) {
@@ -770,6 +859,10 @@
         const input = document.querySelector(`.debt-payment-input[data-id="${id}"]`);
         const amount = input ? toNumber(input.value) : 0;
         await payDebt(id, amount);
+      }
+
+      if (action === "delete-debt") {
+        await deleteCurrentShiftDebt(id);
       }
     });
 
