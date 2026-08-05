@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boulevard - Fiókom</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app-ui.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Fiókom</h1>
+      <p id="userInfo">Betöltés...</p>
+    </div>
+    <button id="backBtn" class="secondary-btn">Vissza</button>
+  </header>
+
+  <main class="container">
+    <section class="panel">
+      <h2>Email cím módosítása</h2>
+      <p>Jelenlegi belépési email: <strong id="currentEmail">Betöltés...</strong></p>
+      <p id="pendingEmailInfo" class="muted-cell"></p>
+
+      <div class="form-grid">
+        <div>
+          <label for="newEmail">Új email cím</label>
+          <input id="newEmail" type="email" autocomplete="email" placeholder="nev@email.hu">
+        </div>
+        <div>
+          <label for="emailCurrentPassword">Jelenlegi jelszó</label>
+          <input id="emailCurrentPassword" type="password" autocomplete="current-password">
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="changeEmailBtn">Ellenőrző email küldése</button>
+      </div>
+      <p class="muted-cell">Az új cím csak az emailben kapott ellenőrző link megnyitása után lép életbe. Ezután már az új címmel kell belépni.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Jelszó módosítása</h2>
+      <div class="form-grid">
+        <div>
+          <label for="passwordCurrentPassword">Jelenlegi jelszó</label>
+          <input id="passwordCurrentPassword" type="password" autocomplete="current-password">
+        </div>
+        <div>
+          <label for="newPassword">Új jelszó</label>
+          <input id="newPassword" type="password" autocomplete="new-password" minlength="6">
+        </div>
+        <div>
+          <label for="newPasswordAgain">Új jelszó még egyszer</label>
+          <input id="newPasswordAgain" type="password" autocomplete="new-password" minlength="6">
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="changePasswordBtn">Jelszó módosítása</button>
+      </div>
+    </section>
+
+    <div id="message"></div>
+  </main>
+
+  <script type="module">
+    import { auth, db } from "./firebase.js";
+    import {
+      EmailAuthProvider,
+      onAuthStateChanged,
+      reauthenticateWithCredential,
+      reload,
+      updatePassword,
+      verifyBeforeUpdateEmail
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import { addDoc, collection, doc, getDoc, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    const userInfo = document.getElementById("userInfo");
+    const currentEmail = document.getElementById("currentEmail");
+    const pendingEmailInfo = document.getElementById("pendingEmailInfo");
+    const newEmail = document.getElementById("newEmail");
+    const emailCurrentPassword = document.getElementById("emailCurrentPassword");
+    const passwordCurrentPassword = document.getElementById("passwordCurrentPassword");
+    const newPassword = document.getElementById("newPassword");
+    const newPasswordAgain = document.getElementById("newPasswordAgain");
+    const changeEmailBtn = document.getElementById("changeEmailBtn");
+    const changePasswordBtn = document.getElementById("changePasswordBtn");
+    const backBtn = document.getElementById("backBtn");
+    const message = document.getElementById("message");
+
+    let currentUser = null;
+    let currentUserData = null;
+
+    backBtn.addEventListener("click", () => {
+      window.location.href = "dashboard.html";
+    });
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b91c1c" : "#047857";
+    }
+
+    function friendlyAuthError(error) {
+      const code = String(error?.code || "");
+      if (code === "auth/wrong-password" || code === "auth/invalid-credential") return "A jelenlegi jelszó hibás.";
+      if (code === "auth/email-already-in-use") return "Ezt az email címet már másik felhasználó használja.";
+      if (code === "auth/invalid-email") return "Az új email cím formátuma hibás.";
+      if (code === "auth/weak-password") return "Az új jelszó túl rövid vagy túl gyenge.";
+      if (code === "auth/requires-recent-login") return "Biztonsági okból lépj ki, lépj be újra, majd próbáld ismét.";
+      if (code === "auth/too-many-requests") return "Túl sok próbálkozás történt. Próbáld meg később.";
+      if (code === "auth/operation-not-allowed") return "Az email módosítása nincs engedélyezve a Firebase Authentication beállításaiban.";
+      return "A módosítás nem sikerült. Próbáld meg újra.";
+    }
+
+    async function writeLog(action, details) {
+      await addDoc(collection(db, "logs"), {
+        action,
+        details,
+        userId: currentUser.uid,
+        userName: currentUserData?.name || currentUser.email || currentUser.uid,
+        userRole: currentUserData?.role || "dolgozo",
+        createdAt: serverTimestamp()
+      });
+    }
+
+    async function reauthenticate(password) {
+      const credential = EmailAuthProvider.credential(currentUser.email, password);
+      await reauthenticateWithCredential(currentUser, credential);
+    }
+
+    async function syncAuthEmailToUserDocument() {
+      if (!currentUser?.email || !currentUserData) return;
+      if (String(currentUserData.email || "") === String(currentUser.email)) return;
+
+      await setDoc(doc(db, "users", currentUser.uid), {
+        email: currentUser.email,
+        pendingEmail: "",
+        emailSyncedAt: serverTimestamp()
+      }, { merge: true });
+      currentUserData.email = currentUser.email;
+      currentUserData.pendingEmail = "";
+    }
+
+    changeEmailBtn.addEventListener("click", async () => {
+      const requestedEmail = newEmail.value.trim().toLowerCase();
+      const password = emailCurrentPassword.value;
+
+      if (!requestedEmail || !password) {
+        showMessage("Add meg az új email címet és a jelenlegi jelszavadat.", true);
+        return;
+      }
+
+      if (requestedEmail === String(currentUser.email || "").toLowerCase()) {
+        showMessage("Ez már a jelenlegi email címed.", true);
+        return;
+      }
+
+      changeEmailBtn.disabled = true;
+      showMessage("Ellenőrző email küldése...");
+
+      try {
+        await reauthenticate(password);
+        await verifyBeforeUpdateEmail(currentUser, requestedEmail, {
+          url: `${window.location.origin}/account.html`
+        });
+
+        await setDoc(doc(db, "users", currentUser.uid), {
+          pendingEmail: requestedEmail,
+          emailChangeRequestedAt: serverTimestamp()
+        }, { merge: true });
+
+        await writeLog("account_email_change_requested", {
+          previousEmail: currentUser.email || "",
+          requestedEmail
+        });
+
+        currentUserData.pendingEmail = requestedEmail;
+        pendingEmailInfo.textContent = `Ellenőrzésre váró új cím: ${requestedEmail}`;
+        newEmail.value = "";
+        emailCurrentPassword.value = "";
+        showMessage("Az ellenőrző emailt elküldtük. Nyisd meg benne a linket az új cím aktiválásához.");
+      } catch (error) {
+        console.error(error);
+        showMessage(friendlyAuthError(error), true);
+      } finally {
+        changeEmailBtn.disabled = false;
+      }
+    });
+
+    changePasswordBtn.addEventListener("click", async () => {
+      const currentPassword = passwordCurrentPassword.value;
+      const password = newPassword.value;
+      const passwordAgain = newPasswordAgain.value;
+
+      if (!currentPassword || !password || !passwordAgain) {
+        showMessage("Tölts ki minden jelszómezőt.", true);
+        return;
+      }
+
+      if (password.length < 6) {
+        showMessage("Az új jelszó legalább 6 karakter legyen.", true);
+        return;
+      }
+
+      if (password !== passwordAgain) {
+        showMessage("A két új jelszó nem egyezik.", true);
+        return;
+      }
+
+      if (currentPassword === password) {
+        showMessage("Az új jelszó ne egyezzen meg a jelenlegivel.", true);
+        return;
+      }
+
+      changePasswordBtn.disabled = true;
+      showMessage("Jelszó módosítása...");
+
+      try {
+        await reauthenticate(currentPassword);
+        await updatePassword(currentUser, password);
+        await writeLog("account_password_changed", {});
+
+        passwordCurrentPassword.value = "";
+        newPassword.value = "";
+        newPasswordAgain.value = "";
+        showMessage("A jelszó sikeresen megváltozott.");
+      } catch (error) {
+        console.error(error);
+        showMessage(friendlyAuthError(error), true);
+      } finally {
+        changePasswordBtn.disabled = false;
+      }
+    });
+
+    onAuthStateChanged(auth, async user => {
+      if (!user) {
+        window.location.href = "login.html";
+        return;
+      }
+
+      currentUser = user;
+
+      try {
+        await reload(currentUser);
+        const userSnap = await getDoc(doc(db, "users", currentUser.uid));
+
+        if (!userSnap.exists()) {
+          userInfo.textContent = "Nincs jogosultság beállítva ehhez a felhasználóhoz.";
+          return;
+        }
+
+        currentUserData = userSnap.data();
+
+        if (currentUserData.active === false) {
+          userInfo.textContent = "Ez a felhasználó inaktív.";
+          return;
+        }
+
+        await syncAuthEmailToUserDocument();
+        userInfo.textContent = currentUserData.name || currentUser.email || "Felhasználó";
+        currentEmail.textContent = currentUser.email || "—";
+        pendingEmailInfo.textContent = currentUserData.pendingEmail
+          ? `Ellenőrzésre váró új cím: ${currentUserData.pendingEmail}`
+          : "";
+      } catch (error) {
+        console.error(error);
+        showMessage("A fiókadatok betöltése nem sikerült.", true);
+      }
+    });
+  </script>
+</body>
+</html>

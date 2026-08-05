@@ -57,6 +57,7 @@
         <div>
           <h2>Felhasználók</h2>
           <p id="usersInfo">Betöltés...</p>
+          <p class="muted-cell">A belépési email címet minden felhasználó a Fiókom oldalon, a saját jelszavával módosíthatja. Az itt látható cím csak tájékoztató adat.</p>
         </div>
         <button id="reloadBtn" class="secondary-dark-btn">Frissítés</button>
       </div>
@@ -164,7 +165,7 @@
         tr.dataset.id = user.id;
         tr.innerHTML = `
           <td><input class="table-input wide-input user-name" value="${escapeHtml(user.name || "")}"></td>
-          <td><input class="table-input wide-input user-email" value="${escapeHtml(user.email || "")}"></td>
+          <td><span class="user-email-value">${escapeHtml(user.email || "—")}</span></td>
           <td>
             <select class="user-role">
               <option value="dolgozo" ${user.role !== "admin" ? "selected" : ""}>Dolgozó</option>
@@ -232,7 +233,7 @@
 
       return {
         name: tr.querySelector(".user-name").value.trim(),
-        email: tr.querySelector(".user-email").value.trim(),
+        email: users.find(user => user.id === id)?.email || "",
         role,
         active,
         permissions: role === "admin" ? DEFAULT_ROLE_PERMISSIONS.admin : permissions
