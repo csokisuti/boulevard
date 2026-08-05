@@ -34,9 +34,9 @@
       </div>
 
       <div class="button-row">
-        <button id="changeEmailBtn">Email cím módosítása</button>
+        <button id="changeEmailBtn">Ellenőrző email küldése</button>
       </div>
-      <p class="muted-cell">A módosítás azonnal életbe lép. A következő belépésnél már az új email címet kell használni.</p>
+      <p class="muted-cell">Az új cím az emailben kapott ellenőrző link megnyitása után lép életbe. Ezután már az új címmel kell belépni.</p>
     </section>
 
     <section class="panel">
@@ -71,8 +71,8 @@
       onAuthStateChanged,
       reauthenticateWithCredential,
       reload,
-      updateEmail,
       updatePassword,
+      verifyBeforeUpdateEmail,
     } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import { addDoc, collection, doc, getDoc, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
@@ -157,32 +157,29 @@
       }
 
       changeEmailBtn.disabled = true;
-      showMessage("Email cím módosítása...");
+      showMessage("Ellenőrző email küldése...");
 
       try {
         await reauthenticate(password);
-        const previousEmail = currentUser.email || "";
-        await updateEmail(currentUser, requestedEmail);
-        await reload(currentUser);
-
-        await setDoc(doc(db, "users", currentUser.uid), {
-          email: requestedEmail,
-          pendingEmail: "",
-          emailChangedAt: serverTimestamp()
-        }, { merge: true });
-
-        await writeLog("account_email_changed", {
-          previousEmail,
-          newEmail: requestedEmail
+        await verifyBeforeUpdateEmail(currentUser, requestedEmail, {
+          url: "https://boulevard-b001b.web.app/account.html"
         });
 
-        currentUserData.email = requestedEmail;
-        currentUserData.pendingEmail = "";
-        currentEmail.textContent = requestedEmail;
-        pendingEmailInfo.textContent = "";
+        await setDoc(doc(db, "users", currentUser.uid), {
+          pendingEmail: requestedEmail,
+          emailChangeRequestedAt: serverTimestamp()
+        }, { merge: true });
+
+        await writeLog("account_email_change_requested", {
+          previousEmail: currentUser.email || "",
+          requestedEmail
+        });
+
+        currentUserData.pendingEmail = requestedEmail;
+        pendingEmailInfo.textContent = `Ellenőrzésre váró új cím: ${requestedEmail}`;
         newEmail.value = "";
         emailCurrentPassword.value = "";
-        showMessage("Az email cím sikeresen megváltozott. A következő belépésnél már az új címet használd.");
+        showMessage("Az ellenőrző emailt elküldtük. Nyisd meg benne a linket az új cím aktiválásához.");
       } catch (error) {
         console.error(error);
         showMessage(friendlyAuthError(error), true);
