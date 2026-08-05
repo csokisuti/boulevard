@@ -110,6 +110,7 @@
       if (code === "auth/requires-recent-login") return "Biztonsági okból lépj ki, lépj be újra, majd próbáld ismét.";
       if (code === "auth/too-many-requests") return "Túl sok próbálkozás történt. Próbáld meg később.";
       if (code === "auth/operation-not-allowed") return "Az email módosítása nincs engedélyezve a Firebase Authentication beállításaiban.";
+      if (code === "auth/unauthorized-continue-uri") return "A Firebase nem engedélyezte a visszatérési címet. Frissítsd az account.html fájlt a javított verzióra.";
       return "A módosítás nem sikerült. Próbáld meg újra.";
     }
 
@@ -161,9 +162,7 @@
 
       try {
         await reauthenticate(password);
-        await verifyBeforeUpdateEmail(currentUser, requestedEmail, {
-          url: `${window.location.origin}/account.html`
-        });
+        await verifyBeforeUpdateEmail(currentUser, requestedEmail);
 
         await setDoc(doc(db, "users", currentUser.uid), {
           pendingEmail: requestedEmail,
