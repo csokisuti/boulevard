@@ -227,8 +227,6 @@
     function renderMenu(userData) {
       menu.innerHTML = "";
 
-      addMenuItem("Fiókom", "Email cím és jelszó módosítása", "account.html");
-
       if (hasPermission(userData, "canViewStand")) {
         if (openShift) {
           addMenuItem(
@@ -261,6 +259,8 @@
       if (hasPermission(userData, "canManageUsers")) {
         addMenuItem("Felhasználók", "Jogosultságok kezelése", "users.html");
       }
+
+      addMenuItem("Fiókom", "Email cím és jelszó módosítása", "account.html");
 
       if (!menu.children.length) {
         menu.innerHTML = `<p>Nincs beállított jogosultságod egyik modulhoz sem.</p>`;
