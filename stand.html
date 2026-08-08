@@ -130,7 +130,7 @@
       <div class="section-header">
         <div>
           <h2>Termékek</h2>
-          <p>Csak a maradvány / záró mező aktív alapból.</p>
+          <p>Csak a maradvány / záró mező aktív alapból. Bevételezés / kivét: pozitív szám = bevételezés, negatív szám = kivét.</p>
         </div>
         <input id="searchInput" type="text" placeholder="Termék keresése...">
       </div>
@@ -142,9 +142,8 @@
               <th>Termék</th>
               <th>Egység</th>
               <th>Nyitó</th>
-              <th>Bejövő áru</th>
-              <th>Lejárat / kivétel</th>
-              <th>Kivétel megj.</th>
+              <th>Bevételezés / kivét</th>
+              <th>Kivét indoka</th>
               <th>Összesen</th>
               <th>Maradvány / záró</th>
               <th>Fogyás</th>
@@ -768,6 +767,13 @@
     function receivedNetValue(row) {
       if (isCounterUnit(row)) return 0;
       return receivedInValue(row) - receivedOutValue(row);
+    }
+
+    function setReceivedNetValue(row, value) {
+      const net = toNumber(value);
+      row.receivedIn = net > 0 ? net : 0;
+      row.receivedOut = net < 0 ? Math.abs(net) : 0;
+      row.received = net;
     }
 
     function receivedNeedsNote(row) {
@@ -1812,7 +1818,7 @@
 
       categoryTr.dataset.category = category;
       categoryTr.innerHTML = `
-        <td colspan="12">
+        <td colspan="11">
           <button class="category-toggle" data-category="${escapeHtml(category)}">${collapsed ? "▶" : "▼"}</button>
           <span class="category-title">${escapeHtml(category)}</span>
           <span class="category-total">Összesen: ${formatMoney(stats.total)}</span>
@@ -1909,7 +1915,7 @@
         if (row.catalogPriceChangedInShift || row.standPriceChangedInShift) card.classList.add("price-updated-row");
 
         const receivedNoteInput = receivedNeedsNote(row) || String(row.receivedNote || "").trim()
-          ? mobileInput(row, index, "receivedNote", row.receivedNote || "", "Kivétel megjegyzés", "mobile-note-field")
+          ? mobileInput(row, index, "receivedNote", row.receivedNote || "", "Kivét indoka", "mobile-note-field")
           : "";
 
         card.innerHTML = `
@@ -1929,8 +1935,7 @@
 
           <div class="mobile-fields-grid">
             ${mobileInput(row, index, "openingFinal", row.openingFinal, "Nyitó")}
-            ${counter ? `<div class="mobile-field"><span>Bejövő áru</span><strong>—</strong></div>` : mobileInput(row, index, "receivedIn", receivedInValue(row), "Bejövő áru")}
-            ${counter ? `<div class="mobile-field"><span>Lejárat / kivétel</span><strong>—</strong></div>` : mobileInput(row, index, "receivedOut", receivedOutValue(row), "Lejárat / kivétel", "mobile-stock-out")}
+            ${counter ? `<div class="mobile-field"><span>Bevételezés / kivét</span><strong>—</strong></div>` : mobileInput(row, index, "receivedNet", quantityInputValue(receivedNetValue(row)), "Bevételezés / kivét", receivedNetValue(row) < 0 ? "mobile-stock-out" : "")}
             ${receivedNoteInput}
             <label class="mobile-field mobile-remaining-field">
               <span>Maradvány / záró</span>
@@ -1981,13 +1986,9 @@
         if (receivedNeedsNote(row)) tr.classList.add("negative-received-row");
         if (row.catalogPriceChangedInShift || row.standPriceChangedInShift) tr.classList.add("price-updated-row");
 
-        const receivedInCell = counter
+        const receivedNetCell = counter
           ? `<input class="table-input disabled-input" value="" disabled>`
-          : inputWithEdit(row, index, "receivedIn", receivedInValue(row));
-
-        const receivedOutCell = counter
-          ? `<input class="table-input disabled-input" value="" disabled>`
-          : inputWithEdit(row, index, "receivedOut", receivedOutValue(row), "stock-out-input");
+          : inputWithEdit(row, index, "receivedNet", quantityInputValue(receivedNetValue(row)), receivedNetValue(row) < 0 ? "stock-out-input" : "");
 
         tr.innerHTML = `
           <td>
@@ -2000,8 +2001,7 @@
           </td>
           <td>${escapeHtml(row.unitAtShift)}</td>
           <td>${inputWithEdit(row, index, "openingFinal", row.openingFinal)}</td>
-          <td>${receivedInCell}</td>
-          <td>${receivedOutCell}</td>
+          <td>${receivedNetCell}</td>
           <td class="received-note-cell">${renderReceivedNoteCell(row)}</td>
           <td class="calc-total">${counter ? "—" : formatNumber(c.total)}</td>
           <td>
@@ -3562,7 +3562,12 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       if (!rows[index]) return;
 
-      rows[index][field] = input.value;
+      if (field === "receivedNet") {
+        setReceivedNetValue(rows[index], input.value);
+        input.classList.toggle("stock-out-input", toNumber(input.value) < 0);
+      } else {
+        rows[index][field] = input.value;
+      }
 
       if (field === "receivedNote") return;
 
@@ -3635,7 +3640,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         return;
       }
 
-      if ((field === "receivedIn" || field === "receivedOut") && !can("canEditReceivedStock")) {
+      if (field === "receivedNet" && !can("canEditReceivedStock")) {
         showMessage("Nincs jogosultságod a vételezés / kivétel módosításához.", true);
         return;
       }
