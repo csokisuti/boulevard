@@ -256,10 +256,14 @@
     async function loadPaymentHistory() {
       paymentHistoryState = "loading";
       paymentHistoryByDebtId = new Map();
-      const paymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_payment"));
-      const movementsSnap = await getDocs(paymentsQuery);
+      const cashPaymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_payment"));
+      const transferPaymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_bank_transfer"));
+      const [cashSnap, transferSnap] = await Promise.all([
+        getDocs(cashPaymentsQuery), getDocs(transferPaymentsQuery)
+      ]);
+      const movementDocs = [...cashSnap.docs, ...transferSnap.docs];
 
-      movementsSnap.forEach(item => {
+      movementDocs.forEach(item => {
         const data = item.data();
         const debtId = data.debtId || "";
         if (!debtId) return;
@@ -276,7 +280,9 @@
           personName: data.personName || "",
           note: data.note || "",
           createdAt: data.createdAt || null,
-          createdByName: data.createdByName || ""
+          createdByName: data.createdByName || "",
+          paymentMethod: data.type === "debt_bank_transfer" ? "bank_transfer" : "cash",
+          pendingStand: false
         });
       });
 
@@ -324,7 +330,9 @@
             <div style="margin-top:6px; padding-top:6px; border-top:1px solid #e5e7eb;">
               <div><strong>${formatDateTime(payment.createdAt)}</strong></div>
               <div>Összeg: ${formatMoney(payment.amount)}</div>
+              <div>Fizetési mód: ${payment.paymentMethod === "bank_transfer" ? "Átutalás" : "Készpénz"}</div>
               <div>Stand: ${escapeHtml(payment.shiftLabel || "-")}</div>
+              ${payment.pendingStand ? `<div><strong>A következő megnyitott standon fog megjelenni.</strong></div>` : ""}
               <div>Rögzítette: ${escapeHtml(payment.createdByName || "-")}</div>
               <div>Megjegyzés: ${escapeHtml(payment.note || "-")}</div>
             </div>
@@ -360,6 +368,18 @@
     function applyPaymentLedgerCheck() {
       if (paymentHistoryState !== "loaded") return;
       debts = debts.map(debt => {
+        const pendingTransfers = Array.isArray(debt.pendingBankTransfers) ? debt.pendingBankTransfers : [];
+        if (pendingTransfers.length) {
+          if (!paymentHistoryByDebtId.has(debt.id)) paymentHistoryByDebtId.set(debt.id, []);
+          const knownIds = new Set(paymentHistoryByDebtId.get(debt.id).map(payment => payment.id));
+          pendingTransfers.forEach(transfer => {
+            if (knownIds.has(transfer.id)) return;
+            paymentHistoryByDebtId.get(debt.id).push({
+              ...transfer, paymentMethod: "bank_transfer", pendingStand: true,
+              createdAt: transfer.createdAt || null
+            });
+          });
+        }
         const payments = paymentHistoryByDebtId.get(debt.id) || [];
         if (!payments.length) return debt;
         const originalAmount = toNumber(debt.originalAmount);
@@ -438,6 +458,7 @@
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
           const canPay = !!currentShift && !debt.paymentLedgerOverpaid;
+          const canPayByTransfer = currentUserData?.role === "admin" && !debt.paymentLedgerOverpaid;
           const canDelete = canDeleteCurrentShiftDebt(debt);
           const isSelected = selectedDebtIds.has(debt.id);
           if (isSelected) tr.classList.add("debt-row-selected");
@@ -457,6 +478,7 @@
             </td>
             <td>
               <button class="small-btn" data-action="pay-debt" data-id="${debt.id}" ${canPay ? "" : "disabled"}>Befizetés</button>
+              ${canPayByTransfer ? `<button class="small-btn secondary-dark-btn" data-action="pay-debt-transfer" data-id="${debt.id}">Átutalás</button>` : ""}
               ${canDelete ? `<button class="danger-small-btn" data-action="delete-debt" data-id="${debt.id}">Törlés</button>` : ""}
             </td>
           `;
@@ -619,6 +641,11 @@
       let expense = 0;
       let debtCreated = 0;
       let debtPaid = 0;
+      let debtPaidByTransfer = 0;
+      let cardPayment = 0;
+      let lottoTurnover = 0;
+      let repi = 0;
+      let previousHandover = 0;
 
       movementsSnap.forEach(item => {
         const data = item.data();
@@ -628,16 +655,27 @@
         if (data.type === "expense") expense += amount;
         if (data.type === "debt_create") debtCreated += amount;
         if (data.type === "debt_payment") debtPaid += amount;
+        if (data.type === "debt_bank_transfer") debtPaidByTransfer += amount;
+        if (data.type === "card_payment") cardPayment += amount;
+        if (data.type === "lotto_turnover") lottoTurnover += amount;
+        if (data.type === "repi") repi += amount;
+        if (data.type === "previous_handover") previousHandover += amount;
       });
 
       const totalSalesValue = toNumber(currentShift.totalSalesValue);
-      const totalCashExpected = totalSalesValue + income - expense - debtCreated + debtPaid;
+      if (previousHandover === 0) previousHandover = toNumber(currentShift.totalPreviousHandover);
+      const totalCashExpected = previousHandover + totalSalesValue + income - expense - debtCreated + debtPaid - cardPayment + lottoTurnover - repi;
 
       await setDoc(doc(db, "shifts", currentShift.id), {
         totalMoneyIncome: income,
         totalMoneyExpense: expense,
         totalDebtCreated: debtCreated,
         totalDebtPaid: debtPaid,
+        totalDebtPaidByTransfer: debtPaidByTransfer,
+        totalCardPayment: cardPayment,
+        totalLottoTurnover: lottoTurnover,
+        totalRepi: repi,
+        totalPreviousHandover: previousHandover,
         totalCashExpected,
         updatedAt: serverTimestamp(),
         updatedBy: currentUser.uid,
@@ -799,6 +837,85 @@
       }
     }
 
+    async function payDebtByBankTransfer(debtId, amount) {
+      if (currentUserData?.role !== "admin") {
+        showMessage("Átutalásos tartozásrendezést csak admin rögzíthet.", true);
+        return;
+      }
+      if (amount <= 0) {
+        showMessage("Az átutalt összegnek nagyobbnak kell lennie nullánál.", true);
+        return;
+      }
+
+      const shownDebt = debts.find(item => item.id === debtId);
+      if (!shownDebt) {
+        showMessage("Nem található ez a tartozás.", true);
+        return;
+      }
+      if (!confirm(`Biztosan átutalással rendezel ${formatMoney(amount)} összeget?\n${shownDebt.name || "Tartozás"}\n\nEz nem növeli a stand készpénzes leadóját.`)) return;
+
+      try {
+        const assignedShift = currentShift;
+        await runTransaction(db, async transaction => {
+          const debtRef = doc(db, "debts", debtId);
+          const debtSnap = await transaction.get(debtRef);
+          if (!debtSnap.exists()) throw new Error("A tartozás időközben már nem található.");
+          const debt = debtSnap.data();
+          const remainingBefore = toNumber(debt.remainingAmount);
+          if (debt.status === "paid" || remainingBefore <= 0) throw new Error("Ezt a tartozást időközben már rendezték.");
+          if (amount > remainingBefore) throw new Error(`Az átutalás nem lehet több, mint az aktuális hátralék: ${formatMoney(remainingBefore)}`);
+
+          const paidAfter = toNumber(debt.paidAmount) + amount;
+          const remainingAfter = remainingBefore - amount;
+          const statusAfter = remainingAfter <= 0 ? "paid" : "partial";
+          transaction.set(debtRef, {
+            paidAmount: paidAfter, remainingAmount: remainingAfter, status: statusAfter,
+            lastPaymentMethod: "bank_transfer",
+            lastPaymentShiftId: assignedShift?.id || "",
+            lastPaymentShiftLabel: assignedShift?.shiftLabel || "Következő standra vár",
+            lastPaymentAt: serverTimestamp(), updatedAt: serverTimestamp(),
+            updatedBy: currentUser.uid, updatedByName: currentUserData.name
+          }, { merge: true });
+
+          const transferId = doc(collection(db, "logs")).id;
+          const paymentData = {
+            id: transferId,
+            type: "debt_bank_transfer", amount, cashEffect: 0,
+            personName: debt.name || "", note: "Tartozás átutalással rendezve", debtId,
+            shiftId: assignedShift?.id || "", shiftLabel: assignedShift?.shiftLabel || "",
+            movementDate: assignedShift?.businessDate || "", pendingStandAssignment: !assignedShift,
+            createdAt: assignedShift ? serverTimestamp() : new Date().toISOString(),
+            createdBy: currentUser.uid, createdByName: currentUserData.name
+          };
+          if (assignedShift) {
+            transaction.set(doc(collection(db, "shifts", assignedShift.id, "moneyMovements")), paymentData);
+          } else {
+            const previousPending = Array.isArray(debt.pendingBankTransfers) ? debt.pendingBankTransfers : [];
+            transaction.set(debtRef, { pendingBankTransfers: [...previousPending, paymentData] }, { merge: true });
+          }
+
+          const logRef = doc(collection(db, "logs"));
+          transaction.set(logRef, {
+            action: "debt_paid_by_bank_transfer",
+            details: { debtId, name: debt.name || "", amount, remainingBefore, remainingAfter, statusAfter,
+              cashEffect: 0, shiftId: assignedShift?.id || "", shiftLabel: assignedShift?.shiftLabel || "",
+              pendingStandAssignment: !assignedShift },
+            userId: currentUser.uid, userName: currentUserData.name, userRole: currentUserData.role,
+            createdAt: serverTimestamp()
+          });
+        });
+
+        if (assignedShift) await updateShiftMoneyTotals();
+        showMessage(assignedShift
+          ? "Az átutalás rögzítve. A standon külön, 0 Ft készpénzhatással jelenik meg."
+          : "Az átutalás rögzítve. A következő megnyitott standon fog megjelenni, 0 Ft készpénzhatással.");
+        await refreshDebtsAndHistory();
+      } catch (error) {
+        console.error("Az átutalásos rendezés sikertelen:", error);
+        showMessage(error.message || "Az átutalásos rendezés nem sikerült.", true);
+      }
+    }
+
     async function payDebt(debtId, amount) {
       if (!currentShift) {
         showMessage("Befizetést csak nyitott standhoz lehet rögzíteni.", true);
@@ -904,6 +1021,12 @@
         const input = document.querySelector(`.debt-payment-input[data-id="${id}"]`);
         const amount = input ? toNumber(input.value) : 0;
         await payDebt(id, amount);
+      }
+
+      if (action === "pay-debt-transfer") {
+        const input = document.querySelector(`.debt-payment-input[data-id="${id}"]`);
+        const amount = input ? toNumber(input.value) : 0;
+        await payDebtByBankTransfer(id, amount);
       }
 
       if (action === "delete-debt") {
