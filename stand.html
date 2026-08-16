@@ -421,7 +421,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, serverTimestamp, query, where, limit, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, serverTimestamp, query, where, limit, orderBy, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -2960,6 +2960,54 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       if (type === "debt_payment" && !selectedDebtId) {
         showMessage("Tartozás befizetésnél válaszd ki a tartozást.", true);
+        return;
+      }
+
+      if (type === "debt_payment") {
+        await runTransaction(db, async transaction => {
+          const debtRef = doc(db, "debts", selectedDebtId);
+          const debtSnap = await transaction.get(debtRef);
+          if (!debtSnap.exists()) throw new Error("Nem található a kiválasztott tartozás.");
+
+          const debt = debtSnap.data();
+          const remainingBefore = toNumber(debt.remainingAmount);
+          if (debt.status === "paid" || remainingBefore <= 0) throw new Error("Ezt a tartozást időközben már rendezték.");
+          if (amount > remainingBefore) throw new Error(`A befizetés nem lehet több, mint az aktuális hátralék: ${formatMoney(remainingBefore)}`);
+
+          const paidAfter = toNumber(debt.paidAmount) + amount;
+          const remainingAfter = remainingBefore - amount;
+          const statusAfter = remainingAfter <= 0 ? "paid" : "partial";
+          transaction.set(debtRef, {
+            paidAmount: paidAfter, remainingAmount: remainingAfter, status: statusAfter,
+            lastPaymentShiftId: currentShift.id, lastPaymentShiftLabel: currentShift.shiftLabel || "",
+            lastPaymentAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: currentUser.uid,
+            updatedByName: currentUserData.name
+          }, { merge: true });
+
+          const movementRef = doc(collection(db, "shifts", currentShift.id, "moneyMovements"));
+          transaction.set(movementRef, {
+            type, amount, personName: debt.name || personName, note, debtId: selectedDebtId,
+            shiftId: currentShift.id, shiftLabel: currentShift.shiftLabel || "",
+            movementDate: currentShift.businessDate || "", createdAt: serverTimestamp(),
+            createdBy: currentUser.uid, createdByName: currentUserData.name
+          });
+
+          const logRef = doc(collection(db, "logs"));
+          transaction.set(logRef, {
+            action: isClosedShift() ? "closed_shift_finance_modified" : "money_movement_created",
+            details: { shiftId: currentShift.id, shiftLabel: currentShift.shiftLabel || "",
+              businessDate: currentShift.businessDate || "", businessDateLabel: currentShift.businessDateLabel || "",
+              type, amount, effect: movementEffect(type, amount), personName: debt.name || personName, note,
+              debtId: selectedDebtId, debtBefore: debt,
+              debtAfter: { paidAmount: paidAfter, remainingAmount: remainingAfter, status: statusAfter },
+              beforeFinancials: financeTotals(), source: isClosedShift() ? "closed_shift_finance_edit" : "open_shift_finance" },
+            userId: currentUser.uid, userName: currentUserData.name, userRole: currentUserData.role, createdAt: serverTimestamp()
+          });
+        });
+
+        moneyType.value = "income"; moneyPerson.value = ""; moneyAmount.value = ""; moneyNote.value = "";
+        debtSelect.value = ""; debtSelectBox.style.display = "none";
+        await refreshMoneyAfterSave("Tartozásbefizetés tranzakcióbiztosan mentve.");
         return;
       }
 
