@@ -135,7 +135,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -355,20 +355,50 @@
         return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
       });
 
-      renderDebts();
+    }
+
+    function applyPaymentLedgerCheck() {
+      if (paymentHistoryState !== "loaded") return;
+      debts = debts.map(debt => {
+        const payments = paymentHistoryByDebtId.get(debt.id) || [];
+        if (!payments.length) return debt;
+        const originalAmount = toNumber(debt.originalAmount);
+        const ledgerPaid = payments.reduce((sum, payment) => sum + toNumber(payment.amount), 0);
+        const paidAmount = Math.min(originalAmount, Math.max(0, ledgerPaid));
+        const remainingAmount = Math.max(0, originalAmount - paidAmount);
+        const status = remainingAmount <= 0 ? "paid" : (paidAmount > 0 ? "partial" : "open");
+        return { ...debt, paidAmount, remainingAmount, status,
+          paymentLedgerMismatch: ledgerPaid !== toNumber(debt.paidAmount) || remainingAmount !== toNumber(debt.remainingAmount) || status !== debt.status,
+          paymentLedgerOverpaid: ledgerPaid > originalAmount };
+      });
+    }
+
+    async function repairSafePaymentLedgerMismatches() {
+      const repairable = debts.filter(debt => debt.paymentLedgerMismatch && !debt.paymentLedgerOverpaid);
+      if (!repairable.length) return;
+      const batch = writeBatch(db);
+      repairable.forEach(debt => batch.set(doc(db, "debts", debt.id), {
+        paidAmount: toNumber(debt.paidAmount), remainingAmount: toNumber(debt.remainingAmount), status: debt.status,
+        summaryRepairedAt: serverTimestamp(), summaryRepairedBy: currentUser.uid, summaryRepairedByName: currentUserData.name
+      }, { merge: true }));
+      await batch.commit();
     }
 
     async function refreshDebtsAndHistory() {
       paymentHistoryState = "loading";
-      await loadDebts();
-
-      loadPaymentHistory()
-        .then(() => renderDebts())
-        .catch(error => {
-          console.error("A befizetési napló betöltése sikertelen:", error);
-          paymentHistoryState = "error";
-          renderDebts();
-        });
+      try {
+        await Promise.all([loadDebts(), loadPaymentHistory()]);
+        applyPaymentLedgerCheck();
+        try {
+          await repairSafePaymentLedgerMismatches();
+        } catch (repairError) {
+          console.warn("Az összesítő automatikus helyreállítása nem volt engedélyezett, a kijelzés ettől még javítva marad:", repairError);
+        }
+      } catch (error) {
+        console.error("A tartozások vagy a befizetési napló betöltése sikertelen:", error);
+        paymentHistoryState = "error";
+      }
+      renderDebts();
     }
 
     function renderDebts() {
@@ -407,7 +437,7 @@
       } else {
         openDebts.forEach(debt => {
           const tr = document.createElement("tr");
-          const canPay = !!currentShift;
+          const canPay = !!currentShift && !debt.paymentLedgerOverpaid;
           const canDelete = canDeleteCurrentShiftDebt(debt);
           const isSelected = selectedDebtIds.has(debt.id);
           if (isSelected) tr.classList.add("debt-row-selected");
@@ -512,13 +542,22 @@
       const total = selected.reduce((sum, debt) => sum + toNumber(debt.remainingAmount), 0);
       if (!confirm(`Biztosan rendezed a kijelölt ${selected.length} tartozást, összesen ${formatMoney(total)} értékben?`)) return;
 
-      const batch = writeBatch(db);
-
-      selected.forEach(debt => {
+      const paymentResult = await runTransaction(db, async transaction => {
+      const freshDebts = [];
+      for (const selectedDebt of selected) {
+        const debtRef = doc(db, "debts", selectedDebt.id);
+        const debtSnap = await transaction.get(debtRef);
+        if (!debtSnap.exists()) throw new Error(`A tartozás időközben eltűnt: ${selectedDebt.name || selectedDebt.id}`);
+        freshDebts.push({ ref: debtRef, id: debtSnap.id, ...debtSnap.data() });
+      }
+      let committedTotal = 0;
+      freshDebts.forEach(debt => {
         const amount = toNumber(debt.remainingAmount);
+        if (debt.status === "paid" || amount <= 0) throw new Error(`A tartozást időközben már rendezték: ${debt.name || debt.id}`);
         const paidAfter = toNumber(debt.paidAmount) + amount;
+        committedTotal += amount;
 
-        batch.set(doc(db, "debts", debt.id), {
+        transaction.set(debt.ref, {
           paidAmount: paidAfter,
           remainingAmount: 0,
           status: "paid",
@@ -531,7 +570,7 @@
         }, { merge: true });
 
         const movementRef = doc(collection(db, "shifts", currentShift.id, "moneyMovements"));
-        batch.set(movementRef, {
+        transaction.set(movementRef, {
           type: "debt_payment",
           amount,
           personName: debt.name || "",
@@ -545,7 +584,7 @@
         });
 
         const logRef = doc(collection(db, "logs"));
-        batch.set(logRef, {
+        transaction.set(logRef, {
           action: "debt_payment_from_debts_page",
           details: {
             shiftId: currentShift.id,
@@ -564,11 +603,11 @@
           createdAt: serverTimestamp()
         });
       });
-
-      await batch.commit();
+      return { count: freshDebts.length, total: committedTotal };
+      });
       await updateShiftMoneyTotals();
       selectedDebtIds.clear();
-      showMessage(`${selected.length} tartozás együttesen rendezve, összesen ${formatMoney(total)}.`);
+      showMessage(`${paymentResult.count} tartozás együttesen rendezve, összesen ${formatMoney(paymentResult.total)}.`);
       await refreshDebtsAndHistory();
     }
 
@@ -789,12 +828,19 @@
 
       if (!confirmed) return;
 
-      const paidAfter = toNumber(debt.paidAmount) + amount;
-      const remainingAfter = remainingBefore - amount;
+      await runTransaction(db, async transaction => {
+      const debtRef = doc(db, "debts", debtId);
+      const freshSnap = await transaction.get(debtRef);
+      if (!freshSnap.exists()) throw new Error("A tartozás időközben már nem található.");
+      const freshDebt = freshSnap.data();
+      const freshRemaining = toNumber(freshDebt.remainingAmount);
+      if (freshDebt.status === "paid" || freshRemaining <= 0) throw new Error("Ezt a tartozást időközben már rendezték.");
+      if (amount > freshRemaining) throw new Error(`A befizetés nem lehet több, mint az aktuális hátralék: ${formatMoney(freshRemaining)}`);
+      const paidAfter = toNumber(freshDebt.paidAmount) + amount;
+      const remainingAfter = freshRemaining - amount;
       const statusAfter = remainingAfter <= 0 ? "paid" : "partial";
-      const batch = writeBatch(db);
 
-      batch.set(doc(db, "debts", debtId), {
+      transaction.set(debtRef, {
         paidAmount: paidAfter,
         remainingAmount: remainingAfter,
         status: statusAfter,
@@ -807,10 +853,10 @@
       }, { merge: true });
 
       const movementRef = doc(collection(db, "shifts", currentShift.id, "moneyMovements"));
-      batch.set(movementRef, {
+      transaction.set(movementRef, {
         type: "debt_payment",
         amount,
-        personName: debt.name || "",
+        personName: freshDebt.name || "",
         note: "Tartozás befizetés",
         debtId,
         shiftId: currentShift.id,
@@ -821,15 +867,15 @@
       });
 
       const logRef = doc(collection(db, "logs"));
-      batch.set(logRef, {
+      transaction.set(logRef, {
         action: "debt_payment_from_debts_page",
         details: {
           shiftId: currentShift.id,
           shiftLabel: currentShift.shiftLabel || "",
           debtId,
-          name: debt.name || "",
+          name: freshDebt.name || "",
           amount,
-          remainingBefore,
+          remainingBefore: freshRemaining,
           remainingAfter,
           statusAfter,
           effect: movementEffect("debt_payment", amount)
@@ -839,8 +885,7 @@
         userRole: currentUserData.role,
         createdAt: serverTimestamp()
       });
-
-      await batch.commit();
+      });
       await updateShiftMoneyTotals();
 
       showMessage("Befizetés rögzítve és hozzáadva az aktuális pénztárhoz.");
