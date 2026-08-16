@@ -199,6 +199,10 @@
           <span>Tartozás befizetés</span>
           <strong id="financeDebtPaid">0 Ft</strong>
         </div>
+        <div class="finance-card">
+          <span>Átutalással rendezett tartozás (készpénzhatás: 0 Ft)</span>
+          <strong id="financeDebtPaidByTransfer">0 Ft</strong>
+        </div>
         <div class="finance-card total">
           <span>Leadó</span>
           <strong id="financeCalculatedHandover">0 Ft</strong>
@@ -468,6 +472,7 @@
     const financeExpense = document.getElementById("financeExpense");
     const financeDebtCreated = document.getElementById("financeDebtCreated");
     const financeDebtPaid = document.getElementById("financeDebtPaid");
+    const financeDebtPaidByTransfer = document.getElementById("financeDebtPaidByTransfer");
     const financeCalculatedHandover = document.getElementById("financeCalculatedHandover");
     const calculatedHandoverBox = document.getElementById("calculatedHandoverBox");
     const cardDate = document.getElementById("cardDate");
@@ -786,6 +791,7 @@
       if (type === "expense") return -amount;
       if (type === "debt_create") return -amount;
       if (type === "debt_payment") return amount;
+      if (type === "debt_bank_transfer") return 0;
       if (type === "card_payment") return -amount;
       if (type === "lotto_turnover") return amount;
       if (type === "repi") return -amount;
@@ -825,6 +831,7 @@
       if (type === "expense") return "Egyéb kiadás";
       if (type === "debt_create") return "Új tartozás";
       if (type === "debt_payment") return "Tartozás befizetés";
+      if (type === "debt_bank_transfer") return "Tartozás átutalással rendezve";
       if (type === "card_payment") return "Bankkártya";
       if (type === "lotto_turnover") return "Lottó forgalom";
       if (type === "repi") return "Repi";
@@ -1273,6 +1280,12 @@
 
       const previousShift = await getLastClosedShift();
       const previousItems = previousShift ? await loadShiftItems(previousShift.id) : new Map();
+      const debtSnapForPendingTransfers = await getDocs(collection(db, "debts"));
+      const debtsWithPendingTransfers = debtSnapForPendingTransfers.docs
+        .map(item => ({ ref: item.ref, id: item.id, data: item.data(), transfers: Array.isArray(item.data().pendingBankTransfers) ? item.data().pendingBankTransfers : [] }))
+        .filter(item => item.transfers.length);
+      const pendingTransfers = debtsWithPendingTransfers.flatMap(item => item.transfers.map(transfer => ({ ...transfer, debtRef: item.ref, debtId: transfer.debtId || item.id })));
+      const pendingTransferTotal = pendingTransfers.reduce((sum, item) => sum + toNumber(item.amount), 0);
       const previousHandover = previousHandoverFromShift(previousShift);
       const shiftRef = doc(collection(db, "shifts"));
       const batch = writeBatch(db);
@@ -1299,6 +1312,7 @@
         totalMoneyExpense: 0,
         totalDebtCreated: 0,
         totalDebtPaid: 0,
+        totalDebtPaidByTransfer: pendingTransferTotal,
         totalCardPayment: 0,
         totalLottoTurnover: 0,
         totalRepi: 0,
@@ -1335,6 +1349,23 @@
         });
       }
 
+      pendingTransfers.forEach(pending => {
+        const movementRef = doc(collection(db, "shifts", shiftRef.id, "moneyMovements"));
+        batch.set(movementRef, {
+          ...pending,
+          type: "debt_bank_transfer",
+          cashEffect: 0,
+          shiftId: shiftRef.id,
+          shiftLabel,
+          movementDate: selectedDate,
+          pendingStandAssignment: false,
+          assignedToShiftAt: serverTimestamp()
+        });
+      });
+      debtsWithPendingTransfers.forEach(item => {
+        batch.set(item.ref, { pendingBankTransfers: [], pendingBankTransfersAssignedAt: serverTimestamp() }, { merge: true });
+      });
+
       const logRef = doc(collection(db, "logs"));
       batch.set(logRef, {
         action: "shift_opened",
@@ -1348,7 +1379,9 @@
           assignedUserId: assignedUser.id,
           assignedUserName: assignedUser.name || assignedUser.email || assignedUser.id,
           previousShiftId: previousShift ? previousShift.id : "",
-          previousHandover
+          previousHandover,
+          assignedPendingDebtTransfers: pendingTransfers.length,
+          assignedPendingDebtTransferTotal: pendingTransferTotal
         },
         userId: currentUser.uid,
         userName: currentUserData.name,
@@ -1536,6 +1569,7 @@
       const expense = moneyMovements.filter(item => item.type === "expense").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const debtCreated = moneyMovements.filter(item => item.type === "debt_create").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const debtPaid = moneyMovements.filter(item => item.type === "debt_payment").reduce((sum, item) => sum + toNumber(item.amount), 0);
+      const debtPaidByTransfer = moneyMovements.filter(item => item.type === "debt_bank_transfer").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const cardPayment = moneyMovements.filter(item => item.type === "card_payment").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const lottoTurnover = moneyMovements.filter(item => item.type === "lotto_turnover").reduce((sum, item) => sum + toNumber(item.amount), 0);
       const repi = moneyMovements.filter(item => item.type === "repi").reduce((sum, item) => sum + toNumber(item.amount), 0);
@@ -1553,6 +1587,7 @@
         expense,
         debtCreated,
         debtPaid,
+        debtPaidByTransfer,
         cardPayment,
         lottoTurnover,
         repi,
@@ -1734,6 +1769,7 @@
       financeExpense.textContent = `-${formatMoney(totals.expense)}`;
       financeDebtCreated.textContent = `-${formatMoney(totals.debtCreated)}`;
       financeDebtPaid.textContent = formatMoney(totals.debtPaid);
+      financeDebtPaidByTransfer.textContent = formatMoney(totals.debtPaidByTransfer);
       financeCalculatedHandover.textContent = formatMoney(totals.calculatedHandover);
       calculatedHandoverBox.textContent = formatMoney(totals.calculatedHandover);
 
@@ -2229,6 +2265,7 @@
         totalMoneyExpense: totals.expense,
         totalDebtCreated: totals.debtCreated,
         totalDebtPaid: totals.debtPaid,
+        totalDebtPaidByTransfer: totals.debtPaidByTransfer,
         totalCardPayment: totals.cardPayment,
         totalLottoTurnover: totals.lottoTurnover,
         totalRepi: totals.repi,
@@ -2457,6 +2494,7 @@
         totalMoneyExpense: financials.expense,
         totalDebtCreated: financials.debtCreated,
         totalDebtPaid: financials.debtPaid,
+        totalDebtPaidByTransfer: financials.debtPaidByTransfer,
         totalCardPayment: financials.cardPayment,
         totalLottoTurnover: financials.lottoTurnover,
         totalRepi: financials.repi,
