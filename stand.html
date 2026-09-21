@@ -1356,7 +1356,7 @@
       const pendingTransferTotal = pendingTransfers.reduce((sum, item) => sum + toNumber(item.amount), 0);
       const previousHandover = previousHandoverFromShift(previousShift);
       const shiftRef = doc(collection(db, "shifts"));
-      const openShiftLockRef = doc(db, "shifts", "__open_shift_lock__");
+      const openShiftLockRef = doc(db, "shifts", "open_shift_lock");
       const businessDateLabel = formatBusinessDateRange(selectedDate, selectedEndDate);
       const shiftLabel = `${businessDateLabel} - ${assignedUser.name || assignedUser.email || "Stand"}`;
 
