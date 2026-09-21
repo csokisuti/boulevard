@@ -514,6 +514,7 @@
     let originalRows = [];
     let moneyMovements = [];
     let moneyMovementSaving = false;
+    let openShiftSaving = false;
     let openDebts = [];
     let collapsedCategories = {};
     let mobileCardMode = false;
@@ -1065,12 +1066,70 @@
       return await loadProductsFresh();
     }
 
+    function openShiftIdentity(shift) {
+      return [
+        shiftStartDateValue(shift) || "",
+        shiftEndDateValue(shift) || "",
+        shift?.assignedUserId || shift?.assignedUserName || ""
+      ].join("|");
+    }
+
+    function openShiftCreatedMs(shift) {
+      const value = shift?.createdAt || shift?.openedAt;
+      if (!value) return 0;
+      const date = value.toDate ? value.toDate() : new Date(value);
+      const time = date.getTime();
+      return Number.isFinite(time) ? time : 0;
+    }
+
     async function getOpenShift() {
-      const q = query(collection(db, "shifts"), where("status", "==", "open"), limit(1));
+      const q = query(collection(db, "shifts"), where("status", "==", "open"));
       const snap = await getDocs(q);
       if (snap.empty) return null;
-      const item = snap.docs[0];
-      return { id: item.id, ...item.data() };
+
+      const openShifts = snap.docs
+        .map(item => ({ id: item.id, ...item.data() }))
+        .sort((a, b) => openShiftCreatedMs(a) - openShiftCreatedMs(b));
+      const closedSnap = await getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(80)));
+      const closedShifts = closedSnap.docs
+        .map(item => ({ id: item.id, ...item.data() }))
+        .filter(item => item.status === "closed");
+      const duplicateIds = new Set();
+
+      openShifts.forEach(candidate => {
+        const candidateTime = openShiftCreatedMs(candidate);
+        const matchingClosed = closedShifts.find(closed => {
+          if (openShiftIdentity(closed) !== openShiftIdentity(candidate)) return false;
+          const closedTime = openShiftCreatedMs(closed);
+          return candidateTime > 0 && closedTime > 0 && Math.abs(candidateTime - closedTime) <= 5 * 60 * 1000;
+        });
+        if (matchingClosed) duplicateIds.add(candidate.id);
+      });
+
+      const canonicalByIdentity = new Map();
+      openShifts.forEach(candidate => {
+        if (duplicateIds.has(candidate.id)) return;
+        const key = openShiftIdentity(candidate);
+        const first = canonicalByIdentity.get(key);
+        if (!first) {
+          canonicalByIdentity.set(key, candidate);
+          return;
+        }
+        const firstTime = openShiftCreatedMs(first);
+        const candidateTime = openShiftCreatedMs(candidate);
+        if (firstTime > 0 && candidateTime > 0 && Math.abs(candidateTime - firstTime) <= 5 * 60 * 1000) duplicateIds.add(candidate.id);
+      });
+
+      if (duplicateIds.size && isAdmin()) {
+        await Promise.all([...duplicateIds].map(shiftId => setDoc(doc(db, "shifts", shiftId), {
+          status: "cancelled_duplicate",
+          duplicateCancelledAt: serverTimestamp(),
+          duplicateCancelledBy: currentUser?.uid || "",
+          duplicateCancelledByName: currentUserData?.name || ""
+        }, { merge: true }).catch(error => console.warn("A duplikált stand automatikus lezárása nem sikerült:", error))));
+      }
+
+      return openShifts.find(item => !duplicateIds.has(item.id)) || null;
     }
 
     async function getShiftById(shiftId) {
@@ -1269,11 +1328,17 @@
         return;
       }
 
+      if (openShiftSaving) return;
+      openShiftSaving = true;
+      openShiftBtn.disabled = true;
+      openShiftBtn.textContent = "Stand megnyitása...";
+
+      try {
+
       const existingOpenShift = await getOpenShift();
 
       if (existingOpenShift) {
-        showMessage("Már van nyitott stand. Előbb azt kell lezárni.", true);
-        return;
+        throw new Error("Már van nyitott stand. Előbb azt kell lezárni.");
       }
 
       await loadCatalogVersion();
@@ -1288,11 +1353,21 @@
       const pendingTransferTotal = pendingTransfers.reduce((sum, item) => sum + toNumber(item.amount), 0);
       const previousHandover = previousHandoverFromShift(previousShift);
       const shiftRef = doc(collection(db, "shifts"));
-      const batch = writeBatch(db);
+      const openShiftLockRef = doc(db, "shifts", "__open_shift_lock__");
       const businessDateLabel = formatBusinessDateRange(selectedDate, selectedEndDate);
       const shiftLabel = `${businessDateLabel} - ${assignedUser.name || assignedUser.email || "Stand"}`;
 
-      batch.set(shiftRef, {
+      await runTransaction(db, async transaction => {
+      const lockSnap = await transaction.get(openShiftLockRef);
+      if (lockSnap.exists() && lockSnap.data().currentShiftId) {
+        const lockedShiftRef = doc(db, "shifts", lockSnap.data().currentShiftId);
+        const lockedShiftSnap = await transaction.get(lockedShiftRef);
+        if (lockedShiftSnap.exists() && lockedShiftSnap.data().status === "open") {
+          throw new Error("Már van nyitott stand. Előbb azt kell lezárni.");
+        }
+      }
+
+      transaction.set(shiftRef, {
         status: "open",
         shiftLabel,
         businessDate: selectedDate,
@@ -1328,12 +1403,12 @@
         const previousItem = previousItems.get(product.id);
         const opening = previousItem ? toNumber(previousItem.remaining) : 0;
         const itemRef = doc(db, "shifts", shiftRef.id, "items", product.id);
-        batch.set(itemRef, productShiftItemData(product, opening));
+        transaction.set(itemRef, productShiftItemData(product, opening));
       });
 
       if (previousHandover !== 0) {
         const movementRef = doc(collection(db, "shifts", shiftRef.id, "moneyMovements"));
-        batch.set(movementRef, {
+        transaction.set(movementRef, {
           type: "previous_handover",
           amount: previousHandover,
           personName: "Előző stand leadó",
@@ -1351,7 +1426,7 @@
 
       pendingTransfers.forEach(pending => {
         const movementRef = doc(collection(db, "shifts", shiftRef.id, "moneyMovements"));
-        batch.set(movementRef, {
+        transaction.set(movementRef, {
           ...pending,
           type: "debt_bank_transfer",
           cashEffect: 0,
@@ -1363,11 +1438,11 @@
         });
       });
       debtsWithPendingTransfers.forEach(item => {
-        batch.set(item.ref, { pendingBankTransfers: [], pendingBankTransfersAssignedAt: serverTimestamp() }, { merge: true });
+        transaction.set(item.ref, { pendingBankTransfers: [], pendingBankTransfersAssignedAt: serverTimestamp() }, { merge: true });
       });
 
       const logRef = doc(collection(db, "logs"));
-      batch.set(logRef, {
+      transaction.set(logRef, {
         action: "shift_opened",
         details: {
           shiftId: shiftRef.id,
@@ -1389,8 +1464,22 @@
         createdAt: serverTimestamp()
       });
 
-      await batch.commit();
+      transaction.set(openShiftLockRef, {
+        currentShiftId: shiftRef.id,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.uid,
+        updatedByName: currentUserData.name
+      }, { merge: true });
+      });
       window.location.href = "stand.html";
+      } catch (error) {
+        console.error("A stand megnyitása sikertelen:", error);
+        showMessage(error.message || "A stand megnyitása nem sikerült.", true);
+      } finally {
+        openShiftSaving = false;
+        openShiftBtn.disabled = false;
+        openShiftBtn.textContent = "Stand megnyitása";
+      }
     }
 
     function rowFromItem(item) {
