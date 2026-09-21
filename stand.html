@@ -531,8 +531,9 @@
       if (!standMobileCards) return;
       if (!mobileCardMode) {
         standMobileCards.innerHTML = "";
-      } else if (changed && rows.length) {
-        renderMobileCards();
+      }
+      if (changed && rows.length) {
+        renderRows();
       }
     }
     let closedShiftEditAllowed = false;
@@ -1084,13 +1085,15 @@
 
     async function getOpenShift() {
       const q = query(collection(db, "shifts"), where("status", "==", "open"));
-      const snap = await getDocs(q);
+      const [snap, closedSnap] = await Promise.all([
+        getDocs(q),
+        getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(80)))
+      ]);
       if (snap.empty) return null;
 
       const openShifts = snap.docs
         .map(item => ({ id: item.id, ...item.data() }))
         .sort((a, b) => openShiftCreatedMs(a) - openShiftCreatedMs(b));
-      const closedSnap = await getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(80)));
       const closedShifts = closedSnap.docs
         .map(item => ({ id: item.id, ...item.data() }))
         .filter(item => item.status === "closed");
@@ -1181,11 +1184,11 @@
     async function loadOpenDebts() {
       openDebts = [];
 
-      const snap = await getDocs(collection(db, "debts"));
+      const snap = await getDocs(query(collection(db, "debts"), where("status", "in", ["open", "partial"])));
 
       snap.forEach(item => {
         const data = item.data();
-        if (data.status !== "paid") openDebts.push({ id: item.id, ...data });
+        openDebts.push({ id: item.id, ...data });
       });
 
       openDebts.sort((a, b) => {
@@ -1846,7 +1849,7 @@
       });
     }
 
-    function renderFinance() {
+    function updateFinanceSummary() {
       const totals = financeTotals();
 
       financeProductSales.textContent = formatMoney(totals.productSales);
@@ -1861,6 +1864,10 @@
       financeDebtPaidByTransfer.textContent = formatMoney(totals.debtPaidByTransfer);
       financeCalculatedHandover.textContent = formatMoney(totals.calculatedHandover);
       calculatedHandoverBox.textContent = formatMoney(totals.calculatedHandover);
+    }
+
+    function renderFinance() {
+      updateFinanceSummary();
 
       renderCardPaymentsTable();
       renderLottoTurnoverTable();
@@ -2018,11 +2025,12 @@
           const stats = categoryStats(currentCategory);
           const categoryBlock = document.createElement("div");
           categoryBlock.className = `mobile-category-header ${stats.allFilled ? "category-complete" : ""}`;
+          categoryBlock.dataset.category = currentCategory;
           categoryBlock.innerHTML = `
             <button class="category-toggle" data-category="${escapeHtml(currentCategory)}">${collapsedCategories[currentCategory] ? "▶" : "▼"}</button>
             <strong>${escapeHtml(currentCategory)}</strong>
-            <span>Összesen: ${formatMoney(stats.total)}</span>
-            <span>${stats.filled}/${stats.all} kitöltve</span>
+            <span class="mobile-category-total">Összesen: ${formatMoney(stats.total)}</span>
+            <span class="mobile-category-status">${stats.filled}/${stats.all} kitöltve</span>
             ${canUseZeroConsumptionShortcut() ? `<button class="category-zero-btn" data-action="zero-category-consumption" data-category="${escapeHtml(currentCategory)}">✓ 0 fogyás</button>` : ""}
           `;
           standMobileCards.appendChild(categoryBlock);
@@ -2035,6 +2043,7 @@
         const counter = isCounterUnit(row);
         const card = document.createElement("article");
         card.className = "mobile-product-card";
+        card.dataset.index = index;
         if (openingChanged(row)) card.classList.add("review-row");
         if (receivedNeedsNote(row)) card.classList.add("negative-received-row");
         if (row.catalogPriceChangedInShift || row.standPriceChangedInShift) card.classList.add("price-updated-row");
@@ -2073,10 +2082,10 @@
           </div>
 
           <div class="mobile-calculated-grid">
-            <div><span>Összesen</span><strong>${counter ? "—" : formatNumber(c.total)}</strong></div>
-            <div><span>Fogyás</span><strong>${formatNumber(c.consumption)}</strong></div>
-            <div><span>Készlet most</span><strong>${formatNumber(c.currentStock)}</strong></div>
-            <div><span>Eladási érték</span><strong>${formatMoney(c.salesValue)}</strong></div>
+            <div><span>Összesen</span><strong class="mobile-calc-total">${counter ? "—" : formatNumber(c.total)}</strong></div>
+            <div><span>Fogyás</span><strong class="mobile-calc-consumption">${formatNumber(c.consumption)}</strong></div>
+            <div><span>Készlet most</span><strong class="mobile-calc-current">${formatNumber(c.currentStock)}</strong></div>
+            <div><span>Eladási érték</span><strong class="mobile-calc-sales">${formatMoney(c.salesValue)}</strong></div>
           </div>
         `;
 
@@ -2087,6 +2096,14 @@
     function renderRows() {
       const search = searchInput.value.trim().toLowerCase();
       standBody.innerHTML = "";
+
+      if (mobileCardMode) {
+        renderMobileCards();
+        updateTotalSales();
+        renderFinance();
+        return;
+      }
+
       let lastCategory = "";
 
       rows.forEach((row, index) => {
@@ -2146,8 +2163,35 @@
 
       updateTotalSales();
       updateCategorySummaries();
-      if (mobileCardMode) renderMobileCards();
       renderFinance();
+    }
+
+    function updateMobileCardDisplay(card, row) {
+      if (!card) return;
+      const c = calc(row);
+      const counter = isCounterUnit(row);
+      const totalEl = card.querySelector(".mobile-calc-total");
+      const consumptionEl = card.querySelector(".mobile-calc-consumption");
+      const currentEl = card.querySelector(".mobile-calc-current");
+      const salesEl = card.querySelector(".mobile-calc-sales");
+      if (totalEl) totalEl.textContent = counter ? "—" : formatNumber(c.total);
+      if (consumptionEl) consumptionEl.textContent = formatNumber(c.consumption);
+      if (currentEl) currentEl.textContent = formatNumber(c.currentStock);
+      if (salesEl) salesEl.textContent = formatMoney(c.salesValue);
+      card.classList.toggle("review-row", openingChanged(row));
+      card.classList.toggle("negative-received-row", receivedNeedsNote(row));
+      card.classList.toggle("price-updated-row", row.catalogPriceChangedInShift || row.standPriceChangedInShift);
+    }
+
+    function updateMobileCategorySummaries() {
+      standMobileCards.querySelectorAll(".mobile-category-header").forEach(header => {
+        const stats = categoryStats(header.dataset.category || "");
+        const totalEl = header.querySelector(".mobile-category-total");
+        const statusEl = header.querySelector(".mobile-category-status");
+        if (totalEl) totalEl.textContent = `Összesen: ${formatMoney(stats.total)}`;
+        if (statusEl) statusEl.textContent = `${stats.filled}/${stats.all} kitöltve`;
+        header.classList.toggle("category-complete", stats.allFilled);
+      });
     }
 
     function updateRowDisplay(tr, row) {
@@ -2173,7 +2217,7 @@
 
       updateTotalSales();
       updateCategorySummaries();
-      renderFinance();
+      updateFinanceSummary();
     }
 
     function updateTotalSales() {
@@ -3585,7 +3629,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       productSyncPanel.style.display = "none";
       if (!isOpenShift()) return;
 
-      const version = await loadCatalogVersion();
+      const version = currentCatalogVersion;
       const shiftVersion = String(currentShift.catalogVersionAtOpen || "0");
 
       if (version !== shiftVersion) {
@@ -3732,10 +3776,12 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       if (!input || input.disabled) return;
 
       const tr = input.closest("tr");
+      const mobileCard = input.closest(".mobile-product-card");
       const index = Number(input.dataset.index ?? tr?.dataset.index);
       const field = input.dataset.field;
 
       if (!rows[index]) return;
+      const noteNeededBefore = receivedNeedsNote(rows[index]);
 
       if (field === "receivedNet") {
         setReceivedNetValue(rows[index], input.value);
@@ -3747,7 +3793,17 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       if (field === "receivedNote") return;
 
       if (tr) updateRowDisplay(tr, rows[index]);
-      if (mobileCardMode) renderMobileCards();
+      if (mobileCardMode) {
+        const noteNeededAfter = receivedNeedsNote(rows[index]);
+        if (noteNeededBefore !== noteNeededAfter) {
+          renderMobileCards();
+        } else {
+          updateMobileCardDisplay(mobileCard, rows[index]);
+          updateMobileCategorySummaries();
+          updateTotalSales();
+          updateFinanceSummary();
+        }
+      }
     }
 
     standBody.addEventListener("input", handleStandInput);
@@ -3988,10 +4044,13 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
     async function loadPage() {
       showMessage("");
-      await loadUsers();
-      await loadCategories();
-      await loadOpenDebts();
-      products = await loadProductsCached();
+      const [, , , loadedProducts] = await Promise.all([
+        loadUsers(),
+        loadCategories(),
+        loadOpenDebts(),
+        loadProductsCached()
+      ]);
+      products = loadedProducts;
 
       if (shiftIdFromUrl) {
         currentShift = await getShiftById(shiftIdFromUrl);
@@ -4006,8 +4065,10 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         await refreshClosedShiftEditPermission();
         updateHeader();
 
-        const itemMap = await loadShiftItems(currentShift.id);
-        await loadMoneyMovements(currentShift.id);
+        const [itemMap] = await Promise.all([
+          loadShiftItems(currentShift.id),
+          loadMoneyMovements(currentShift.id)
+        ]);
         mergeRows(itemMap);
         setOriginalRows();
         renderRows();
@@ -4038,8 +4099,10 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       updateHeader();
 
-      const itemMap = await loadShiftItems(currentShift.id);
-      await loadMoneyMovements(currentShift.id);
+      const [itemMap] = await Promise.all([
+        loadShiftItems(currentShift.id),
+        loadMoneyMovements(currentShift.id)
+      ]);
       mergeRows(itemMap);
       setOriginalRows();
       renderRows();
