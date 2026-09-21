@@ -423,6 +423,7 @@
   </main>
 
   <script type="module">
+    // Build: 2026-09-21-lock-fix-v3 — Firestore lock document: open_shift_lock
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import { collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, serverTimestamp, query, where, limit, orderBy, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
