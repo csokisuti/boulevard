@@ -135,7 +135,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, orderBy, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -239,18 +239,68 @@
       });
     }
 
-    async function getOpenShift() {
-      const q = query(collection(db, "shifts"), where("status", "==", "open"), limit(1));
-      const snap = await getDocs(q);
+    function debtShiftIdentity(shift) {
+      const start = shift?.businessDateStart || shift?.businessDate || "";
+      const end = shift?.businessDateEnd || shift?.businessDate || start;
+      return [start, end, shift?.assignedUserId || shift?.assignedUserName || ""].join("|");
+    }
 
+    function debtShiftCreatedMs(shift) {
+      const value = shift?.createdAt || shift?.openedAt;
+      if (!value) return 0;
+      const date = value.toDate ? value.toDate() : new Date(value);
+      const time = date.getTime();
+      return Number.isFinite(time) ? time : 0;
+    }
+
+    async function getOpenShift() {
+      const q = query(collection(db, "shifts"), where("status", "==", "open"));
+      const snap = await getDocs(q);
       if (snap.empty) return null;
 
-      const item = snap.docs[0];
+      const openShifts = snap.docs
+        .map(item => ({ id: item.id, ...item.data() }))
+        .sort((a, b) => debtShiftCreatedMs(a) - debtShiftCreatedMs(b));
+      const closedSnap = await getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(80)));
+      const closedShifts = closedSnap.docs
+        .map(item => ({ id: item.id, ...item.data() }))
+        .filter(item => item.status === "closed");
+      const duplicateIds = new Set();
 
-      return {
-        id: item.id,
-        ...item.data()
-      };
+      openShifts.forEach(candidate => {
+        const candidateTime = debtShiftCreatedMs(candidate);
+        const matchingClosed = closedShifts.find(closed => {
+          if (debtShiftIdentity(closed) !== debtShiftIdentity(candidate)) return false;
+          const closedTime = debtShiftCreatedMs(closed);
+          return candidateTime > 0 && closedTime > 0 && Math.abs(candidateTime - closedTime) <= 5 * 60 * 1000;
+        });
+        if (matchingClosed) duplicateIds.add(candidate.id);
+      });
+
+      const canonicalByIdentity = new Map();
+      openShifts.forEach(candidate => {
+        if (duplicateIds.has(candidate.id)) return;
+        const key = debtShiftIdentity(candidate);
+        const first = canonicalByIdentity.get(key);
+        if (!first) {
+          canonicalByIdentity.set(key, candidate);
+          return;
+        }
+        const firstTime = debtShiftCreatedMs(first);
+        const candidateTime = debtShiftCreatedMs(candidate);
+        if (firstTime > 0 && candidateTime > 0 && Math.abs(candidateTime - firstTime) <= 5 * 60 * 1000) duplicateIds.add(candidate.id);
+      });
+
+      if (duplicateIds.size && currentUserData?.role === "admin") {
+        await Promise.all([...duplicateIds].map(shiftId => setDoc(doc(db, "shifts", shiftId), {
+          status: "cancelled_duplicate",
+          duplicateCancelledAt: serverTimestamp(),
+          duplicateCancelledBy: currentUser?.uid || "",
+          duplicateCancelledByName: currentUserData?.name || ""
+        }, { merge: true }).catch(error => console.warn("A duplikált stand automatikus lezárása nem sikerült:", error))));
+      }
+
+      return openShifts.find(item => !duplicateIds.has(item.id)) || null;
     }
 
     async function loadPaymentHistory() {
