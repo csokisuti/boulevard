@@ -135,7 +135,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, orderBy, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, orderBy, startAfter, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -169,7 +169,12 @@
     let paymentHistoryByDebtId = new Map();
     let paymentHistoryState = "loading";
     let showPaidDebts = false;
-    let paidDebtsLimit = 20;
+    let paidDebts = [];
+    let paidDebtsCursor = null;
+    let hasMorePaidDebts = false;
+    let paidDebtsLoading = false;
+    const PAID_DEBTS_PAGE_SIZE = 20;
+    const PAYMENT_QUERY_BATCH_SIZE = 30;
     let createDebtSaving = false;
     const selectedDebtIds = new Set();
     const deletingDebtIds = new Set();
@@ -303,25 +308,37 @@
       return openShifts.find(item => !duplicateIds.has(item.id)) || null;
     }
 
-    async function loadPaymentHistory() {
-      paymentHistoryState = "loading";
-      paymentHistoryByDebtId = new Map();
-      const cashPaymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_payment"));
-      const transferPaymentsQuery = query(collectionGroup(db, "moneyMovements"), where("type", "==", "debt_bank_transfer"));
-      const [cashSnap, transferSnap] = await Promise.all([
-        getDocs(cashPaymentsQuery), getDocs(transferPaymentsQuery)
-      ]);
-      const movementDocs = [...cashSnap.docs, ...transferSnap.docs];
+    function chunkArray(items, size) {
+      const chunks = [];
+      for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+      return chunks;
+    }
 
-      movementDocs.forEach(item => {
+    async function loadPaymentHistoryForDebts(targetDebts, reset = false) {
+      if (reset) paymentHistoryByDebtId = new Map();
+      const debtIds = [...new Set(targetDebts.map(debt => debt.id).filter(Boolean))];
+      debtIds.forEach(debtId => paymentHistoryByDebtId.set(debtId, []));
+      if (!debtIds.length) {
+        paymentHistoryState = "loaded";
+        return;
+      }
+
+      let snapshots = [];
+      try {
+        snapshots = await Promise.all(chunkArray(debtIds, PAYMENT_QUERY_BATCH_SIZE).map(ids =>
+          getDocs(query(collectionGroup(db, "moneyMovements"), where("debtId", "in", ids)))
+        ));
+      } catch (error) {
+        console.warn("A célzott befizetési naplóhoz Firestore collection-group index szükséges. Az oldal az összesítő adatokkal folytatja:", error);
+        paymentHistoryState = "summary";
+        return;
+      }
+
+      snapshots.forEach(snapshot => snapshot.forEach(item => {
         const data = item.data();
+        if (data.type !== "debt_payment" && data.type !== "debt_bank_transfer") return;
         const debtId = data.debtId || "";
-        if (!debtId) return;
-
-        if (!paymentHistoryByDebtId.has(debtId)) {
-          paymentHistoryByDebtId.set(debtId, []);
-        }
-
+        if (!paymentHistoryByDebtId.has(debtId)) return;
         paymentHistoryByDebtId.get(debtId).push({
           id: item.id,
           shiftId: data.shiftId || item.ref.parent.parent?.id || "",
@@ -334,16 +351,16 @@
           paymentMethod: data.type === "debt_bank_transfer" ? "bank_transfer" : "cash",
           pendingStand: false
         });
-      });
+      }));
 
-      paymentHistoryByDebtId.forEach(payments => {
+      debtIds.forEach(debtId => {
+        const payments = paymentHistoryByDebtId.get(debtId) || [];
         payments.sort((a, b) => {
           const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
           const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
           return aTime - bTime;
         });
       });
-
       paymentHistoryState = "loaded";
     }
 
@@ -391,27 +408,55 @@
       `;
     }
 
-    async function loadDebts() {
-      const snap = await getDocs(collection(db, "debts"));
-
-      debts = [];
-      snap.forEach(item => {
-        debts.push({
-          id: item.id,
-          ...item.data()
-        });
-      });
-
-      debts.sort((a, b) => {
+    function sortDebts(items) {
+      items.sort((a, b) => {
         const aTime = a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
         const bTime = b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
-
         if (a.status === "paid" && b.status !== "paid") return 1;
         if (a.status !== "paid" && b.status === "paid") return -1;
         if (aTime !== bTime) return bTime - aTime;
-
         return String(a.name || "").localeCompare(String(b.name || ""), "hu", { sensitivity: "base" });
       });
+      return items;
+    }
+
+    async function loadOpenDebtsOnly() {
+      const snap = await getDocs(query(collection(db, "debts"), where("status", "in", ["open", "partial"])));
+      return sortDebts(snap.docs.map(item => ({ id: item.id, ...item.data() })));
+    }
+
+    async function loadNextPaidDebtsPage(reset = false) {
+      if (paidDebtsLoading || (!reset && !hasMorePaidDebts)) return;
+      paidDebtsLoading = true;
+      loadPaidDebtsBtn.disabled = true;
+      loadMorePaidDebtsBtn.disabled = true;
+      loadAllPaidDebtsBtn.disabled = true;
+
+      try {
+        const constraints = [where("status", "==", "paid")];
+        if (!reset && paidDebtsCursor) constraints.push(startAfter(paidDebtsCursor));
+        constraints.push(limit(PAID_DEBTS_PAGE_SIZE + 1));
+        const snap = await getDocs(query(collection(db, "debts"), ...constraints));
+        const pageDocs = snap.docs.slice(0, PAID_DEBTS_PAGE_SIZE);
+        const page = pageDocs.map(item => ({ id: item.id, ...item.data() }));
+
+        if (reset) paidDebts = [];
+        const knownIds = new Set(paidDebts.map(debt => debt.id));
+        page.forEach(debt => {
+          if (!knownIds.has(debt.id)) paidDebts.push(debt);
+        });
+        paidDebtsCursor = pageDocs.length ? pageDocs[pageDocs.length - 1] : paidDebtsCursor;
+        hasMorePaidDebts = snap.docs.length > PAID_DEBTS_PAGE_SIZE;
+        sortDebts(paidDebts);
+        await loadPaymentHistoryForDebts(page, false);
+        debts = sortDebts([...debts.filter(debt => debt.status !== "paid"), ...paidDebts]);
+        applyPaymentLedgerCheck();
+      } finally {
+        paidDebtsLoading = false;
+        loadPaidDebtsBtn.disabled = false;
+        loadMorePaidDebtsBtn.disabled = false;
+        loadAllPaidDebtsBtn.disabled = false;
+      }
 
     }
 
@@ -457,7 +502,9 @@
     async function refreshDebtsAndHistory() {
       paymentHistoryState = "loading";
       try {
-        await Promise.all([loadDebts(), loadPaymentHistory()]);
+        const openDebts = await loadOpenDebtsOnly();
+        debts = sortDebts([...openDebts, ...paidDebts]);
+        await loadPaymentHistoryForDebts(debts, true);
         applyPaymentLedgerCheck();
         try {
           await repairSafePaymentLedgerMismatches();
@@ -475,9 +522,7 @@
       const search = searchInput.value.trim().toLowerCase();
       const filtered = debts.filter(debt => String(debt.name || "").toLowerCase().includes(search));
       const openDebts = filtered.filter(debt => debt.status !== "paid");
-      const paidDebts = filtered.filter(debt => debt.status === "paid");
-      const visiblePaidDebts = showPaidDebts ? paidDebts.slice(0, paidDebtsLimit) : [];
-      const hasMorePaidDebts = showPaidDebts && paidDebts.length > visiblePaidDebts.length;
+      const visiblePaidDebts = showPaidDebts ? filtered.filter(debt => debt.status === "paid") : [];
       const openTotal = debts
         .filter(debt => debt.status !== "paid")
         .reduce((sum, debt) => sum + toNumber(debt.remainingAmount), 0);
@@ -488,8 +533,8 @@
       });
       openDebtsInfo.textContent = `${openDebts.length} nyitott tartozás`;
       paidDebtsInfo.textContent = showPaidDebts
-        ? `${visiblePaidDebts.length} / ${paidDebts.length} lezárt tartozás megjelenítve`
-        : `${paidDebts.length} lezárt tartozás van, lekérés után jelenik meg`;
+        ? `${visiblePaidDebts.length} lezárt tartozás betöltve${hasMorePaidDebts ? ", további tételek elérhetők" : ""}`
+        : "A lezárt tartozások csak lekérés után töltődnek be";
 
       loadMorePaidDebtsBtn.style.display = hasMorePaidDebts ? "" : "none";
       loadAllPaidDebtsBtn.style.display = hasMorePaidDebts ? "" : "none";
@@ -539,7 +584,7 @@
 
       updateBulkDebtBar(openDebts);
 
-      if (showPaidDebts && !paidDebts.length) {
+      if (showPaidDebts && !visiblePaidDebts.length) {
         paidDebtsBody.innerHTML = `<tr><td colspan="9">Nincs lezárt tartozás.</td></tr>`;
       } else if (showPaidDebts) {
         visiblePaidDebts.forEach(debt => {
@@ -562,7 +607,7 @@
 
         if (hasMorePaidDebts) {
           const tr = document.createElement("tr");
-          tr.innerHTML = `<td colspan="9"><strong>Még ${paidDebts.length - visiblePaidDebts.length} lezárt tartozás van.</strong> Használd a „További 20” vagy „Összes lezárt mutatása” gombot.</td>`;
+          tr.innerHTML = `<td colspan="9"><strong>További lezárt tartozások érhetők el.</strong> Használd a „További 20” vagy „Összes lezárt mutatása” gombot.</td>`;
           paidDebtsBody.appendChild(tr);
         }
       }
@@ -1105,25 +1150,50 @@
 
     createDebtBtn.addEventListener("click", createDebt);
     searchInput.addEventListener("input", renderDebts);
-    loadPaidDebtsBtn.addEventListener("click", () => {
+    loadPaidDebtsBtn.addEventListener("click", async () => {
       showPaidDebts = true;
-      paidDebtsLimit = 20;
       paidDebtsWrapper.style.display = "";
-      renderDebts();
+      paidDebtsInfo.textContent = "Az első 20 lezárt tartozás betöltése…";
+      try {
+        paidDebtsCursor = null;
+        hasMorePaidDebts = true;
+        await loadNextPaidDebtsPage(true);
+        renderDebts();
+      } catch (error) {
+        console.error("A lezárt tartozások betöltése sikertelen:", error);
+        showMessage("A lezárt tartozások betöltése nem sikerült.", true);
+      }
     });
 
-    loadMorePaidDebtsBtn.addEventListener("click", () => {
+    loadMorePaidDebtsBtn.addEventListener("click", async () => {
       showPaidDebts = true;
-      paidDebtsLimit += 20;
       paidDebtsWrapper.style.display = "";
-      renderDebts();
+      paidDebtsInfo.textContent = "További 20 lezárt tartozás betöltése…";
+      try {
+        await loadNextPaidDebtsPage(false);
+        renderDebts();
+      } catch (error) {
+        console.error("A további lezárt tartozások betöltése sikertelen:", error);
+        showMessage("A további lezárt tartozások betöltése nem sikerült.", true);
+      }
     });
 
-    loadAllPaidDebtsBtn.addEventListener("click", () => {
+    loadAllPaidDebtsBtn.addEventListener("click", async () => {
       showPaidDebts = true;
-      paidDebtsLimit = Number.MAX_SAFE_INTEGER;
       paidDebtsWrapper.style.display = "";
-      renderDebts();
+      paidDebtsInfo.textContent = "Az összes lezárt tartozás betöltése…";
+      try {
+        if (!paidDebts.length) {
+          paidDebtsCursor = null;
+          hasMorePaidDebts = true;
+          await loadNextPaidDebtsPage(true);
+        }
+        while (hasMorePaidDebts) await loadNextPaidDebtsPage(false);
+        renderDebts();
+      } catch (error) {
+        console.error("Az összes lezárt tartozás betöltése sikertelen:", error);
+        showMessage("Az összes lezárt tartozás betöltése nem sikerült.", true);
+      }
     });
 
     onAuthStateChanged(auth, async (user) => {
