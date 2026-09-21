@@ -58,7 +58,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
 
     const userInfo = document.getElementById("userInfo");
@@ -141,14 +141,76 @@
       return shift?.businessDateLabel || formatBusinessDateRange(shiftStartDateValue(shift), shiftEndDateValue(shift));
     }
 
+    function shiftIdentity(shift) {
+      return [
+        shiftStartDateValue(shift) || "",
+        shiftEndDateValue(shift) || "",
+        shift?.assignedUserId || shift?.assignedUserName || ""
+      ].join("|");
+    }
+
+    function shiftCreatedMs(shift) {
+      const value = shift?.createdAt || shift?.openedAt;
+      if (!value) return 0;
+      const date = value.toDate ? value.toDate() : new Date(value);
+      const time = date.getTime();
+      return Number.isFinite(time) ? time : 0;
+    }
+
+    async function selectValidOpenShift(openDocs) {
+      if (!openDocs.length) return null;
+
+      const closedSnap = await getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(80)));
+      const closedShifts = closedSnap.docs
+        .map(item => ({ id: item.id, ...item.data() }))
+        .filter(item => item.status === "closed");
+      const sortedOpen = [...openDocs].sort((a, b) => shiftCreatedMs(a) - shiftCreatedMs(b));
+      const duplicateIds = new Set();
+
+      sortedOpen.forEach(candidate => {
+        const candidateTime = shiftCreatedMs(candidate);
+        const matchingClosed = closedShifts.find(closed => {
+          if (shiftIdentity(closed) !== shiftIdentity(candidate)) return false;
+          const closedTime = shiftCreatedMs(closed);
+          return candidateTime > 0 && closedTime > 0 && Math.abs(candidateTime - closedTime) <= 5 * 60 * 1000;
+        });
+        if (matchingClosed) duplicateIds.add(candidate.id);
+      });
+
+      const canonicalByIdentity = new Map();
+      sortedOpen.forEach(candidate => {
+        if (duplicateIds.has(candidate.id)) return;
+        const key = shiftIdentity(candidate);
+        const first = canonicalByIdentity.get(key);
+        if (!first) {
+          canonicalByIdentity.set(key, candidate);
+          return;
+        }
+        const firstTime = shiftCreatedMs(first);
+        const candidateTime = shiftCreatedMs(candidate);
+        if (firstTime > 0 && candidateTime > 0 && Math.abs(candidateTime - firstTime) <= 5 * 60 * 1000) {
+          duplicateIds.add(candidate.id);
+        }
+      });
+
+      if (duplicateIds.size && currentUserData?.role === "admin") {
+        await Promise.all([...duplicateIds].map(shiftId => setDoc(doc(db, "shifts", shiftId), {
+          status: "cancelled_duplicate",
+          duplicateCancelledAt: serverTimestamp(),
+          duplicateCancelledBy: currentUser?.uid || "",
+          duplicateCancelledByName: currentUserData?.name || ""
+        }, { merge: true }).catch(error => console.warn("A duplikált stand automatikus lezárása nem sikerült:", error))));
+      }
+
+      return sortedOpen.find(item => !duplicateIds.has(item.id)) || null;
+    }
+
     async function loadOpenShift() {
       openShift = null;
-      const q = query(collection(db, "shifts"), where("status", "==", "open"), limit(1));
+      const q = query(collection(db, "shifts"), where("status", "==", "open"));
       const snap = await getDocs(q);
-      if (!snap.empty) {
-        const item = snap.docs[0];
-        openShift = { id: item.id, ...item.data() };
-      }
+      const openDocs = snap.docs.map(item => ({ id: item.id, ...item.data() }));
+      openShift = await selectValidOpenShift(openDocs);
     }
 
     async function loadClosedShifts() {
