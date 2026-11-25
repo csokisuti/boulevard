@@ -1,6 +1,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC3IwzTXjnZqQwuvHAYitHdJRTUX81aiS4",
@@ -13,6 +18,17 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+
+// Helyi (IndexedDB) gyorsítótár: oldalváltások/újratöltések között megmarad,
+// több fül esetén is. Ha a böngésző nem támogatja, marad a sima memória-cache.
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+} catch (error) {
+  console.warn("A Firestore helyi gyorsítótár nem kapcsolható be, sima mód:", error);
+  db = getFirestore(app);
+}
 
 export { app, auth, db };

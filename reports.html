@@ -364,7 +364,10 @@
       const from = dateFrom.value || "0000-00-00";
       const to = dateTo.value || "9999-99-99";
 
-      const movementPromises = shifts.map(async shift => {
+      // Csak azoknak a standoknak a pénzmozgásait kérjük le, ahol lehet lottó forgalom.
+      // (Ahol a stand összesítője szerint 0 a lottó, ott fölösleges olvasás lenne.)
+      const shiftMayHaveLotto = shift => !Object.prototype.hasOwnProperty.call(shift, "totalLottoTurnover") || toNumber(shift.totalLottoTurnover) !== 0;
+      const movementPromises = shifts.filter(shiftMayHaveLotto).map(async shift => {
         const snap = await getDocs(collection(db, "shifts", shift.id, "moneyMovements"));
 
         snap.forEach(item => {

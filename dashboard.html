@@ -60,6 +60,7 @@
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import { collection, doc, getDoc, getDocs, query, where, orderBy, limit, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
+    import { recentClosedShiftsForDuplicateCheck, getDocsFresh } from "./shift-utils.js";
 
     const userInfo = document.getElementById("userInfo");
     const menu = document.getElementById("menu");
@@ -160,10 +161,7 @@
     async function selectValidOpenShift(openDocs) {
       if (!openDocs.length) return null;
 
-      const closedSnap = await getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(80)));
-      const closedShifts = closedSnap.docs
-        .map(item => ({ id: item.id, ...item.data() }))
-        .filter(item => item.status === "closed");
+      const closedShifts = await recentClosedShiftsForDuplicateCheck(db, openDocs);
       const sortedOpen = [...openDocs].sort((a, b) => shiftCreatedMs(a) - shiftCreatedMs(b));
       const duplicateIds = new Set();
 
@@ -208,7 +206,7 @@
     async function loadOpenShift() {
       openShift = null;
       const q = query(collection(db, "shifts"), where("status", "==", "open"));
-      const snap = await getDocs(q);
+      const snap = await getDocsFresh(q);
       const openDocs = snap.docs.map(item => ({ id: item.id, ...item.data() }));
       openShift = await selectValidOpenShift(openDocs);
     }
@@ -225,7 +223,7 @@
 
       try {
         const shiftsQuery = query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(40));
-        const snap = await getDocs(shiftsQuery);
+        const snap = await getDocsFresh(shiftsQuery);
         const shifts = [];
 
         snap.forEach(item => {

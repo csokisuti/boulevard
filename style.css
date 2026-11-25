@@ -16,8 +16,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(243, 244, 246, 0.88);
-  backdrop-filter: blur(2px);
+  background: rgba(243, 244, 246, 0.94);
   transition: opacity 0.2s ease, visibility 0.2s ease;
 }
 
@@ -1569,7 +1568,7 @@ button:disabled {
   display: none;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1024px) {
   .stand-table {
     display: none !important;
   }
@@ -1767,7 +1766,7 @@ button:disabled {
 /* stand tablet fast fix */
 
 
-@media (min-width: 761px) {
+@media (min-width: 1025px) {
   #standTablePanel .table-wrapper {
     display: block !important;
   }
@@ -1781,7 +1780,7 @@ button:disabled {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1024px) {
   #standTablePanel .table-wrapper {
     display: none !important;
   }
@@ -2231,4 +2230,84 @@ button:disabled {
   .print-items-table col:nth-child(9),
   .print-items-table col:nth-child(10) { width: 5.7% !important; }
   .print-items-table col:nth-child(11) { width: 38% !important; }
+}
+
+
+/* ===== Teljesítmény és reszponzív javítások (stand oldal) ===== */
+
+/* Hosszú terméklistánál a képernyőn kívüli kártyákat a böngésző nem rajzolja ki. */
+.mobile-product-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 360px;
+}
+
+/* Tablet (álló és fekvő, 1024 px-ig): kártyás nézet két oszlopban. */
+@media (min-width: 640px) and (max-width: 1024px) {
+  .stand-mobile-cards {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+
+  .stand-mobile-cards .mobile-category-header {
+    grid-column: 1 / -1;
+    margin: 10px 0 0;
+    grid-template-columns: auto 1fr auto auto auto;
+    align-items: center;
+  }
+
+  .stand-mobile-cards .mobile-category-header .category-zero-btn {
+    width: auto;
+    margin-top: 0;
+  }
+
+  .stand-mobile-cards .mobile-product-card {
+    margin-bottom: 0;
+  }
+
+  .stand-mobile-cards .mobile-fields-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stand-mobile-cards .mobile-calculated-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* PC: a táblázat férjen ki, oldalra görgetéskor a terméknév látszódjon. */
+@media (min-width: 1025px) {
+  .stand-table {
+    min-width: 1180px;
+  }
+
+  .stand-table th,
+  .stand-table td {
+    padding: 8px 6px;
+  }
+
+  .stand-table .table-input {
+    width: 76px;
+  }
+
+  .stand-table .price-input {
+    width: 84px;
+  }
+
+  .stand-table .note-input {
+    width: 150px;
+  }
+
+  .stand-table thead th:first-child,
+  .stand-table tbody tr:not(.category-row) > td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #ffffff;
+    box-shadow: 1px 0 0 #e5e7eb;
+  }
+
+  .stand-table thead th:first-child {
+    background: #f9fafb;
+  }
 }

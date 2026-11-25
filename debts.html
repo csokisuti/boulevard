@@ -137,6 +137,7 @@
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, serverTimestamp, query, where, limit, orderBy, startAfter, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission } from "./permissions.js";
+    import { recentClosedShiftsForDuplicateCheck } from "./shift-utils.js";
 
     const userInfo = document.getElementById("userInfo");
     const backBtn = document.getElementById("backBtn");
@@ -266,10 +267,7 @@
       const openShifts = snap.docs
         .map(item => ({ id: item.id, ...item.data() }))
         .sort((a, b) => debtShiftCreatedMs(a) - debtShiftCreatedMs(b));
-      const closedSnap = await getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(80)));
-      const closedShifts = closedSnap.docs
-        .map(item => ({ id: item.id, ...item.data() }))
-        .filter(item => item.status === "closed");
+      const closedShifts = await recentClosedShiftsForDuplicateCheck(db, openShifts);
       const duplicateIds = new Set();
 
       openShifts.forEach(candidate => {

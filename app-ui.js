@@ -1,10 +1,12 @@
 (function () {
   const LOADING_TEXT = "Betöltés...";
   const SAVE_PATTERN = /mentés|mentése|rögzítés/i;
+  const SAVE_TIMEOUT_MS = 20000;
   let activeSaveButton = null;
   let originalSaveText = "";
   let saveTimeout = null;
   let lastMessage = "";
+  let loadingCheckTimer = 0;
 
   function ensureUi() {
     if (!document.getElementById("appLoadingOverlay")) {
@@ -32,15 +34,32 @@
     }
   }
 
+  // Korábban minden DOM-változásnál (minden leütésnél) végigment az összes
+  // p/td/span/div elemen és mindegyiknél layoutot kért (offsetParent).
+  // Most: előbb az olcsó szövegösszehasonlítás, a layout csak találatnál kell,
+  // és az ellenőrzés legfeljebb ~8-szor fut másodpercenként.
   function hasVisibleLoadingText() {
-    return [...document.querySelectorAll("p, td, span, div")]
-      .some(element => element.offsetParent !== null && element.textContent.trim() === LOADING_TEXT);
+    const candidates = document.querySelectorAll("p, td, span, div");
+    for (const element of candidates) {
+      if (element.childElementCount !== 0) continue;
+      if (element.textContent.trim() !== LOADING_TEXT) continue;
+      if (element.offsetParent !== null) return true;
+    }
+    return false;
   }
 
   function refreshLoadingState() {
     const overlay = document.getElementById("appLoadingOverlay");
     if (!overlay) return;
     overlay.classList.toggle("is-hidden", !hasVisibleLoadingText());
+  }
+
+  function scheduleLoadingCheck() {
+    if (loadingCheckTimer) return;
+    loadingCheckTimer = setTimeout(() => {
+      loadingCheckTimer = 0;
+      refreshLoadingState();
+    }, 120);
   }
 
   function showToast(message, isError) {
@@ -67,28 +86,39 @@
     showToast(message, isError);
   }
 
+  function handleMessageChange() {
+    const message = document.getElementById("message");
+    if (!message || !message.textContent.trim()) return;
+    const isError = getComputedStyle(message).color === "rgb(185, 28, 28)";
+    const text = message.textContent.trim();
+    if (activeSaveButton) finishSave(text, isError);
+    else showToast(text, isError);
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     ensureUi();
     refreshLoadingState();
 
-    const observer = new MutationObserver(() => {
-      refreshLoadingState();
-
-      const message = document.getElementById("message");
-      if (!message || !message.textContent.trim()) return;
-      const isError = getComputedStyle(message).color === "rgb(185, 28, 28)";
-      const text = message.textContent.trim();
-      if (activeSaveButton) finishSave(text, isError);
-      else showToast(text, isError);
-    });
-
-    observer.observe(document.body, {
+    // Betöltés-overlay: csak szöveg/elem változást figyelünk, ritkítva.
+    const loadingObserver = new MutationObserver(scheduleLoadingCheck);
+    loadingObserver.observe(document.body, {
       childList: true,
       subtree: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["style"]
+      characterData: true
     });
+
+    // Üzenetek (toast): csak a #message elemet figyeljük, nem az egész oldalt.
+    const message = document.getElementById("message");
+    if (message) {
+      const messageObserver = new MutationObserver(handleMessageChange);
+      messageObserver.observe(message, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["style"]
+      });
+    }
 
     document.addEventListener("click", event => {
       const button = event.target.closest("button");
@@ -103,9 +133,9 @@
       button.dataset.appBusy = "1";
       activeSaveButton = button;
       originalSaveText = button.textContent;
-      const message = document.getElementById("message");
-      if (message) {
-        message.textContent = "";
+      const messageEl = document.getElementById("message");
+      if (messageEl) {
+        messageEl.textContent = "";
         lastMessage = "";
       }
       button.classList.add("is-saving");
@@ -114,8 +144,7 @@
         if (button.dataset.appBusy === "1") button.disabled = true;
       });
 
-      saveTimeout = setTimeout(() => finishSave("", false), 20000);
+      saveTimeout = setTimeout(() => finishSave(navigator.onLine ? "" : "Nincs internetkapcsolat – a mentés nem biztos, hogy megtörtént.", !navigator.onLine), SAVE_TIMEOUT_MS);
     }, true);
-
   });
 })();

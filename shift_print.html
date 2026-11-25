@@ -128,7 +128,7 @@
   <script type="module">
     import { auth, db } from "./firebase.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-    import { collection, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import { collection, collectionGroup, doc, getDoc, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
 
     const params = new URLSearchParams(window.location.search);
@@ -332,17 +332,68 @@
       return created <= cutoff;
     }
 
-    async function loadDebtPaymentsUntil(cutoff) {
+    // Célzott lekérdezés: csak a tartozásokhoz tartozó pénzmozgásokat olvassa
+    // (ugyanazt a collection-group indexet használja, mint a tartozások oldal).
+    // Korábban az ÖSSZES stand összes pénzmozgását egyesével, sorban olvasta be,
+    // ami minden új standdal lassabb és drágább lett.
+    async function loadDebtPaymentsUntilTargeted(cutoff, debtIds) {
+      const payments = new Map();
+      const ids = [...new Set(debtIds.filter(Boolean))];
+      const chunks = [];
+      for (let index = 0; index < ids.length; index += 30) chunks.push(ids.slice(index, index + 30));
+
+      const snapshots = await Promise.all(chunks.map(chunk =>
+        getDocs(query(collectionGroup(db, "moneyMovements"), where("debtId", "in", chunk)))
+      ));
+
+      const withoutTime = [];
+      snapshots.forEach(snapshot => snapshot.forEach(movementDoc => {
+        const movement = movementDoc.data();
+        if (movement.type !== "debt_payment" || !movement.debtId) return;
+        const movementTime = toMillis(movement.createdAt);
+        if (!movementTime) {
+          withoutTime.push({ movement, shiftRef: movementDoc.ref.parent.parent });
+          return;
+        }
+        if (movementTime > cutoff) return;
+        payments.set(movement.debtId, (payments.get(movement.debtId) || 0) + toNumber(movement.amount));
+      }));
+
+      // Időbélyeg nélküli (régi) tételeknél – mint eddig – a stand ideje dönt.
+      if (withoutTime.length) {
+        const shiftTimes = new Map();
+        await Promise.all([...new Set(withoutTime.map(item => item.shiftRef?.id).filter(Boolean))].map(async id => {
+          const snap = await getDoc(doc(db, "shifts", id));
+          const data = snap.exists() ? snap.data() : {};
+          shiftTimes.set(id, toMillis(data.closedAt) || toMillis(data.createdAt) || 0);
+        }));
+        withoutTime.forEach(({ movement, shiftRef }) => {
+          const shiftTime = shiftTimes.get(shiftRef?.id) || 0;
+          if (shiftTime && shiftTime > cutoff) return;
+          payments.set(movement.debtId, (payments.get(movement.debtId) || 0) + toNumber(movement.amount));
+        });
+      }
+
+      return payments;
+    }
+
+    // Tartalék, ha a collection-group index nem elérhető: a régi logika, de párhuzamosan.
+    async function loadDebtPaymentsUntilFullScan(cutoff) {
       const payments = new Map();
       const shiftsSnap = await getDocs(collection(db, "shifts"));
-
-      for (const shiftDoc of shiftsSnap.docs) {
+      const relevantShifts = shiftsSnap.docs.filter(shiftDoc => {
         const shiftData = shiftDoc.data();
         const shiftTime = toMillis(shiftData.closedAt) || toMillis(shiftData.createdAt) || 0;
+        return !(shiftTime && shiftTime > cutoff);
+      });
 
-        if (shiftTime && shiftTime > cutoff) continue;
+      const movementSnaps = await Promise.all(relevantShifts.map(shiftDoc =>
+        getDocs(collection(db, "shifts", shiftDoc.id, "moneyMovements"))
+      ));
 
-        const movementSnap = await getDocs(collection(db, "shifts", shiftDoc.id, "moneyMovements"));
+      movementSnaps.forEach((movementSnap, index) => {
+        const shiftData = relevantShifts[index].data();
+        const shiftTime = toMillis(shiftData.closedAt) || toMillis(shiftData.createdAt) || 0;
 
         movementSnap.forEach(movementDoc => {
           const movement = movementDoc.data();
@@ -353,29 +404,34 @@
 
           payments.set(movement.debtId, (payments.get(movement.debtId) || 0) + toNumber(movement.amount));
         });
-      }
-
-      return payments;
-    }
-
-    async function loadDebtPaymentsInShift(shiftId) {
-      const payments = new Map();
-      const movementSnap = await getDocs(collection(db, "shifts", shiftId, "moneyMovements"));
-
-      movementSnap.forEach(movementDoc => {
-        const movement = movementDoc.data();
-        if (movement.type !== "debt_payment" || !movement.debtId) return;
-        payments.set(movement.debtId, (payments.get(movement.debtId) || 0) + toNumber(movement.amount));
       });
 
       return payments;
     }
 
-    async function loadDebtsAtShiftClose(shift) {
+    async function loadDebtPaymentsUntil(cutoff, debtIds) {
+      try {
+        return await loadDebtPaymentsUntilTargeted(cutoff, debtIds);
+      } catch (error) {
+        console.warn("Célzott tartozás-lekérdezés nem sikerült, teljes átnézés következik:", error);
+        return await loadDebtPaymentsUntilFullScan(cutoff);
+      }
+    }
+
+    function debtPaymentsFromMovements(movements) {
+      const payments = new Map();
+      movements.forEach(movement => {
+        if (movement.type !== "debt_payment" || !movement.debtId) return;
+        payments.set(movement.debtId, (payments.get(movement.debtId) || 0) + toNumber(movement.amount));
+      });
+      return payments;
+    }
+
+    async function loadDebtsAtShiftClose(shift, shiftMovements) {
       const cutoff = cutoffMillisForShift(shift);
       const debtSnap = await getDocs(collection(db, "debts"));
-      const paymentsUntilClose = await loadDebtPaymentsUntil(cutoff);
-      const paymentsInSelectedShift = await loadDebtPaymentsInShift(shift.id);
+      const paymentsUntilClose = await loadDebtPaymentsUntil(cutoff, debtSnap.docs.map(item => item.id));
+      const paymentsInSelectedShift = debtPaymentsFromMovements(shiftMovements);
       const result = [];
 
       debtSnap.forEach(item => {
@@ -450,12 +506,14 @@
 
       const shift = { id: shiftSnap.id, ...shiftSnap.data() };
 
-      const itemSnap = await getDocs(collection(db, "shifts", shift.id, "items"));
+      const [itemSnap, moneySnap] = await Promise.all([
+        getDocs(collection(db, "shifts", shift.id, "items")),
+        getDocs(collection(db, "shifts", shift.id, "moneyMovements"))
+      ]);
       const items = [];
       itemSnap.forEach(item => items.push({ id: item.id, ...item.data() }));
       sortItems(items);
 
-      const moneySnap = await getDocs(collection(db, "shifts", shift.id, "moneyMovements"));
       const movements = [];
       moneySnap.forEach(item => movements.push({ id: item.id, ...item.data() }));
       movements.sort((a, b) => {
@@ -466,7 +524,7 @@
         return at - bt;
       });
 
-      const openDebts = await loadDebtsAtShiftClose(shift);
+      const openDebts = await loadDebtsAtShiftClose(shift, movements);
 
       const totalSales = items.reduce((sum, item) => sum + itemCalc(item).salesValue, 0);
 

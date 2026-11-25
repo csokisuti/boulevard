@@ -428,6 +428,7 @@
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
     import { collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, serverTimestamp, query, where, limit, orderBy, writeBatch, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
     import { hasPermission, roleLabel } from "./permissions.js";
+    import { recentClosedShiftsForDuplicateCheck, getDocsFresh } from "./shift-utils.js";
 
     const userInfo = document.getElementById("userInfo");
     const shiftInfo = document.getElementById("shiftInfo");
@@ -518,10 +519,15 @@
     let openShiftSaving = false;
     let openDebts = [];
     let collapsedCategories = {};
-    let mobileCardMode = false;
+    // Betöltéskor rögtön a helyes nézet (régen telefonon üres maradt a lista az első átméretezésig).
+    let mobileCardMode = isMobileCardMode();
+    let existingItemIds = new Set();
+    let originalRowMap = new Map();
+    let summaryFrame = 0;
+    let searchTimer = 0;
 
     function isMobileCardMode() {
-      return window.matchMedia("(max-width: 760px)").matches;
+      return window.matchMedia("(max-width: 1024px)").matches;
     }
 
     function updateMobileCardMode() {
@@ -647,6 +653,28 @@
       message.style.color = error ? "#b91c1c" : "#047857";
     }
 
+    function friendlyError(error) {
+      const code = error?.code || "";
+      if (!navigator.onLine || code === "unavailable" || code === "deadline-exceeded") {
+        return "Nincs internetkapcsolat, vagy a szerver nem érhető el. Ellenőrizd a hálózatot, és próbáld újra.";
+      }
+      if (code === "permission-denied") return "Ehhez a művelethez nincs jogosultság (Firestore szabály).";
+      if (code === "resource-exhausted") return "Elérted a Firebase napi kvótát. Próbáld később, vagy szólj az adminnak.";
+      return `Hiba történt: ${error?.message || error}`;
+    }
+
+    // Minden gombkezelő ezen keresztül fut: hiba esetén azonnal látszik az üzenet,
+    // és a gomb nem marad 20 mp-ig "Mentés folyamatban…" állapotban.
+    async function guarded(fn, ...args) {
+      try {
+        return await fn(...args);
+      } catch (error) {
+        console.error(error);
+        showMessage(friendlyError(error), true);
+        return undefined;
+      }
+    }
+
     function isClosedShift() {
       return currentShift && currentShift.status === "closed";
     }
@@ -667,10 +695,9 @@
 
       if (!currentShift || !isClosedShift() || viewOnlyFromUrl) return;
 
-      const openShift = await getOpenShift();
+      const [openShift, lastClosedShift] = await Promise.all([getOpenShift(), getLastClosedShift()]);
       if (openShift) return;
 
-      const lastClosedShift = await getLastClosedShift();
       if (!lastClosedShift || lastClosedShift.id !== currentShift.id) return;
 
       if (isAdmin()) {
@@ -960,13 +987,15 @@
         await setDoc(ref, data, { merge: true });
       }
 
-      localStorage.removeItem("boulevardProductsCacheV1");
-      localStorage.removeItem("boulevardProductsCacheV2");
+      try {
+        localStorage.removeItem("boulevardProductsCacheV1");
+        localStorage.removeItem("boulevardProductsCacheV2");
+      } catch (error) { /* nem kritikus */ }
       return String(version);
     }
 
     async function loadUsers() {
-      const snap = await getDocs(collection(db, "users"));
+      const snap = await getDocsFresh(collection(db, "users"));
       users = [];
 
       snap.forEach(item => {
@@ -980,7 +1009,7 @@
 
     async function loadCategories() {
       const categoriesQuery = query(collection(db, "categories"), orderBy("name"));
-      const snap = await getDocs(categoriesQuery);
+      const snap = await getDocsFresh(categoriesQuery);
 
       categories = [];
       snap.forEach(item => {
@@ -1027,10 +1056,36 @@
       }
     }
 
-    async function loadProductsFresh() {
-      await loadCatalogVersion();
+    function saveProductsCache(list = products) {
+      try {
+        localStorage.setItem("boulevardProductsCacheV2", JSON.stringify({
+          version: currentCatalogVersion,
+          products: list
+        }));
+      } catch (error) {
+        console.warn("A terméklista helyi mentése nem sikerült:", error);
+      }
+    }
 
-      const snap = await getDocs(collection(db, "products"));
+    // A saját ármódosítás után nem dobjuk el a teljes helyi terméklistát
+    // (az 100-200 olvasás lenne a következő betöltéskor), csak frissítjük benne az árat.
+    function applyPriceChangesToProductCache(priceChanges) {
+      if (!priceChanges.length || !products.length) return;
+      const byId = new Map(priceChanges.map(change => [change.productId, change]));
+      const reviewNeeded = !can("canReviewProducts");
+      products.forEach(product => {
+        const change = byId.get(product.id);
+        if (!change) return;
+        product.salePrice = toNumber(change.after);
+        product.adminReviewNeeded = reviewNeeded;
+      });
+      saveProductsCache(products);
+    }
+
+    async function loadProductsFresh(knownVersion) {
+      if (knownVersion === undefined) await loadCatalogVersion();
+
+      const snap = await getDocsFresh(collection(db, "products"));
       const loadedProducts = [];
 
       snap.forEach(item => {
@@ -1044,28 +1099,26 @@
 
       loadedProducts.sort(productCompareByOrder);
 
-      localStorage.setItem("boulevardProductsCacheV2", JSON.stringify({
-        version: currentCatalogVersion,
-        products: loadedProducts
-      }));
+      saveProductsCache(loadedProducts);
 
       return loadedProducts;
     }
 
     async function loadProductsCached() {
       const version = await loadCatalogVersion();
-      const cacheRaw = localStorage.getItem("boulevardProductsCacheV2");
+      let cacheRaw = null;
+      try { cacheRaw = localStorage.getItem("boulevardProductsCacheV2"); } catch (error) { cacheRaw = null; }
 
       if (cacheRaw) {
         try {
           const cache = JSON.parse(cacheRaw);
           if (cache.version === version && Array.isArray(cache.products)) return cache.products;
         } catch (error) {
-          localStorage.removeItem("boulevardProductsCacheV2");
+          try { localStorage.removeItem("boulevardProductsCacheV2"); } catch (storageError) { /* nem kritikus */ }
         }
       }
 
-      return await loadProductsFresh();
+      return await loadProductsFresh(version);
     }
 
     function openShiftIdentity(shift) {
@@ -1085,19 +1138,13 @@
     }
 
     async function getOpenShift() {
-      const q = query(collection(db, "shifts"), where("status", "==", "open"));
-      const [snap, closedSnap] = await Promise.all([
-        getDocs(q),
-        getDocs(query(collection(db, "shifts"), orderBy("closedAt", "desc"), limit(80)))
-      ]);
+      const snap = await getDocsFresh(query(collection(db, "shifts"), where("status", "==", "open")));
       if (snap.empty) return null;
 
       const openShifts = snap.docs
         .map(item => ({ id: item.id, ...item.data() }))
         .sort((a, b) => openShiftCreatedMs(a) - openShiftCreatedMs(b));
-      const closedShifts = closedSnap.docs
-        .map(item => ({ id: item.id, ...item.data() }))
-        .filter(item => item.status === "closed");
+      const closedShifts = await recentClosedShiftsForDuplicateCheck(db, openShifts);
       const duplicateIds = new Set();
 
       openShifts.forEach(candidate => {
@@ -1155,7 +1202,7 @@
     }
 
     async function loadShiftItems(shiftId) {
-      const snap = await getDocs(collection(db, "shifts", shiftId, "items"));
+      const snap = await getDocsFresh(collection(db, "shifts", shiftId, "items"));
       const map = new Map();
 
       snap.forEach(item => {
@@ -1169,7 +1216,7 @@
       moneyMovements = [];
       if (!shiftId) return;
 
-      const snap = await getDocs(collection(db, "shifts", shiftId, "moneyMovements"));
+      const snap = await getDocsFresh(collection(db, "shifts", shiftId, "moneyMovements"));
 
       snap.forEach(item => {
         moneyMovements.push({ id: item.id, ...item.data() });
@@ -1185,7 +1232,7 @@
     async function loadOpenDebts() {
       openDebts = [];
 
-      const snap = await getDocs(query(collection(db, "debts"), where("status", "in", ["open", "partial"])));
+      const snap = await getDocsFresh(query(collection(db, "debts"), where("status", "in", ["open", "partial"])));
 
       snap.forEach(item => {
         const data = item.data();
@@ -1601,6 +1648,17 @@
 
     function setOriginalRows() {
       originalRows = rows.map(row => snapshotRow(row));
+      originalRowMap = new Map(originalRows.map(row => [row.productId, row]));
+    }
+
+    // Csak azt a sort kell kiírni, ami betöltés/utolsó mentés óta változott,
+    // vagy aminek még nincs tétel-dokumentuma. (Korábban minden mentés 100-200 írás volt.)
+    function isRowDirty(row) {
+      if (!existingItemIds.has(row.productId)) return true;
+      const before = originalRowMap.get(row.productId);
+      if (!before) return true;
+      const now = snapshotRow(row);
+      return Object.keys(now).some(key => String(now[key]) !== String(before[key]));
     }
 
     function findChanges() {
@@ -1884,10 +1942,41 @@
       addRepiBtn.style.display = canWorkHere && (closedFinanceBypass || can("canAddRepi")) ? "" : "none";
     }
 
+    const EMPTY_STATS = { total: 0, filled: 0, all: 0, allFilled: false };
+
+    function buildCategoryStatsMap() {
+      const map = new Map();
+      rows.forEach(row => {
+        const key = categoryName(row);
+        let stats = map.get(key);
+        if (!stats) {
+          stats = { total: 0, filled: 0, all: 0, allFilled: false };
+          map.set(key, stats);
+        }
+        stats.total += calc(row).salesValue;
+        stats.all += 1;
+        if (hasValue(row.remaining)) stats.filled += 1;
+      });
+      map.forEach(stats => { stats.allFilled = stats.all > 0 && stats.filled === stats.all; });
+      return map;
+    }
+
+    function scheduleSummaries() {
+      if (summaryFrame) return;
+      summaryFrame = requestAnimationFrame(() => {
+        summaryFrame = 0;
+        updateTotalSales();
+        if (mobileCardMode) updateMobileCategorySummaries();
+        else updateCategorySummaries();
+        updateFinanceSummary();
+      });
+    }
+
     function updateCategorySummaries() {
-      document.querySelectorAll(".category-row").forEach(categoryRow => {
+      const statsMap = buildCategoryStatsMap();
+      standBody.querySelectorAll(".category-row").forEach(categoryRow => {
         const category = categoryRow.dataset.category;
-        const stats = categoryStats(category);
+        const stats = statsMap.get(category) || EMPTY_STATS;
         const totalEl = categoryRow.querySelector(".category-total");
         const statusEl = categoryRow.querySelector(".category-status");
 
@@ -1938,10 +2027,10 @@
       });
 
       showMessage(`${category} kategória 0 fogyásra állítva. Mentéshez nyomd meg a Mentés gombot.`);
-      renderRows();
+      renderRows({ finance: false });
     }
 
-    function renderCategoryHeader(category) {
+    function renderCategoryHeader(category, parent = standBody) {
       const stats = categoryStats(category);
       const collapsed = !!collapsedCategories[category];
       const categoryTr = document.createElement("tr");
@@ -1960,7 +2049,7 @@
         </td>
       `;
 
-      standBody.appendChild(categoryTr);
+      parent.appendChild(categoryTr);
     }
 
     function inputWithEdit(row, index, field, value, extraClass = "") {
@@ -2014,6 +2103,7 @@
 
       const search = searchInput.value.trim().toLowerCase();
       standMobileCards.innerHTML = "";
+      const fragment = document.createDocumentFragment();
       let lastCategory = "";
 
       rows.forEach((row, index) => {
@@ -2034,7 +2124,7 @@
             <span class="mobile-category-status">${stats.filled}/${stats.all} kitöltve</span>
             ${canUseZeroConsumptionShortcut() ? `<button class="category-zero-btn" data-action="zero-category-consumption" data-category="${escapeHtml(currentCategory)}">✓ 0 fogyás</button>` : ""}
           `;
-          standMobileCards.appendChild(categoryBlock);
+          fragment.appendChild(categoryBlock);
           lastCategory = currentCategory;
         }
 
@@ -2090,21 +2180,25 @@
           </div>
         `;
 
-        standMobileCards.appendChild(card);
+        fragment.appendChild(card);
       });
+
+      standMobileCards.appendChild(fragment);
     }
 
-    function renderRows() {
+    function renderRows({ finance = true } = {}) {
       const search = searchInput.value.trim().toLowerCase();
       standBody.innerHTML = "";
 
       if (mobileCardMode) {
         renderMobileCards();
         updateTotalSales();
-        renderFinance();
+        if (finance) renderFinance();
+        else updateFinanceSummary();
         return;
       }
 
+      const fragment = document.createDocumentFragment();
       let lastCategory = "";
 
       rows.forEach((row, index) => {
@@ -2114,7 +2208,7 @@
         const currentCategory = categoryName(row);
 
         if (currentCategory !== lastCategory) {
-          renderCategoryHeader(currentCategory);
+          renderCategoryHeader(currentCategory, fragment);
           lastCategory = currentCategory;
         }
 
@@ -2159,12 +2253,14 @@
           <td class="calc-sales">${formatMoney(c.salesValue)}</td>
         `;
 
-        standBody.appendChild(tr);
+        fragment.appendChild(tr);
       });
 
+      standBody.appendChild(fragment);
       updateTotalSales();
       updateCategorySummaries();
-      renderFinance();
+      if (finance) renderFinance();
+      else updateFinanceSummary();
     }
 
     function updateMobileCardDisplay(card, row) {
@@ -2185,8 +2281,9 @@
     }
 
     function updateMobileCategorySummaries() {
+      const statsMap = buildCategoryStatsMap();
       standMobileCards.querySelectorAll(".mobile-category-header").forEach(header => {
-        const stats = categoryStats(header.dataset.category || "");
+        const stats = statsMap.get(header.dataset.category || "") || EMPTY_STATS;
         const totalEl = header.querySelector(".mobile-category-total");
         const statusEl = header.querySelector(".mobile-category-status");
         if (totalEl) totalEl.textContent = `Összesen: ${formatMoney(stats.total)}`;
@@ -2216,9 +2313,7 @@
       if (row.catalogPriceChangedInShift || row.standPriceChangedInShift) tr.classList.add("price-updated-row");
       else tr.classList.remove("price-updated-row");
 
-      updateTotalSales();
-      updateCategorySummaries();
-      updateFinanceSummary();
+      scheduleSummaries();
     }
 
     function updateTotalSales() {
@@ -2497,10 +2592,13 @@
       const batch = writeBatch(db);
       const changedProductIds = new Set(changes.map(change => change.productId));
 
+      const writtenProductIds = [];
       rows.forEach(row => {
         if (closed && !changedProductIds.has(row.productId)) return;
+        if (!closed && !isRowDirty(row)) return;
         const itemRef = doc(db, "shifts", currentShift.id, "items", row.productId);
         batch.set(itemRef, itemDataFromRow(row), { merge: true });
+        writtenProductIds.push(row.productId);
       });
 
       const shiftUpdate = {
@@ -2564,6 +2662,9 @@
       }
 
       await batch.commit();
+
+      writtenProductIds.forEach(id => existingItemIds.add(id));
+      if (!closed && priceChanges.length) applyPriceChangesToProductCache(priceChanges);
 
       currentShift = {
         ...currentShift,
@@ -2707,6 +2808,7 @@
       });
 
       await batch.commit();
+      if (priceChanges.length) applyPriceChangesToProductCache(priceChanges);
       window.location.href = `stand.html?shiftId=${encodeURIComponent(currentShift.id)}`;
     }
 
@@ -3759,7 +3861,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         const amountInput = document.querySelector(`.debt-edit-amount-input[data-id="${id}"]`);
         const noteInput = document.querySelector(`.debt-edit-note-input[data-id="${id}"]`);
 
-        await editTodayDebt(
+        await guarded(
+          editTodayDebt,
           id,
           nameInput ? nameInput.value : "",
           amountInput ? amountInput.value : 0,
@@ -3768,7 +3871,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       }
 
       if (action === "delete-today-debt") {
-        await deleteTodayDebt(id);
+        await guarded(deleteTodayDebt, id);
       }
     });
 
@@ -3800,9 +3903,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
           renderMobileCards();
         } else {
           updateMobileCardDisplay(mobileCard, rows[index]);
-          updateMobileCategorySummaries();
-          updateTotalSales();
-          updateFinanceSummary();
+          scheduleSummaries();
         }
       }
     }
@@ -3816,7 +3917,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       if (categoryButton) {
         const category = categoryButton.dataset.category;
         collapsedCategories[category] = !collapsedCategories[category];
-        renderRows();
+        renderRows({ finance: false });
         return;
       }
 
@@ -3936,29 +4037,32 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
       }
     });
 
-    saveDraftBtn.addEventListener("click", saveDraft);
-    closeShiftBtn.addEventListener("click", closeShift);
-    searchInput.addEventListener("input", renderRows);
+    saveDraftBtn.addEventListener("click", () => guarded(saveDraft));
+    closeShiftBtn.addEventListener("click", () => guarded(closeShift));
+    searchInput.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => renderRows({ finance: false }), 180);
+    });
     shiftDate.addEventListener("change", () => {
       if (!shiftDateEnd.value || shiftDateEnd.value < shiftDate.value) {
         shiftDateEnd.value = shiftDate.value;
       }
     });
-    openShiftBtn.addEventListener("click", openNewShift);
-    quickAddProductBtn.addEventListener("click", quickAddProduct);
-    applyProductUpdatesBtn.addEventListener("click", applyProductUpdatesToOpenShift);
-    addMoneyMovementBtn.addEventListener("click", addMoneyMovement);
-    addCardPaymentBtn.addEventListener("click", addCardPayment);
-    addLottoTurnoverBtn.addEventListener("click", addLottoTurnover);
-    addRepiBtn.addEventListener("click", addRepi);
-    saveStandNoteBtn.addEventListener("click", saveStandNoteOnly);
+    openShiftBtn.addEventListener("click", () => guarded(openNewShift));
+    quickAddProductBtn.addEventListener("click", () => guarded(quickAddProduct));
+    applyProductUpdatesBtn.addEventListener("click", () => guarded(applyProductUpdatesToOpenShift));
+    addMoneyMovementBtn.addEventListener("click", () => guarded(addMoneyMovement));
+    addCardPaymentBtn.addEventListener("click", () => guarded(addCardPayment));
+    addLottoTurnoverBtn.addEventListener("click", () => guarded(addLottoTurnover));
+    addRepiBtn.addEventListener("click", () => guarded(addRepi));
+    saveStandNoteBtn.addEventListener("click", () => guarded(saveStandNoteOnly));
 
     [cardPaymentsBody, lottoTurnoverBody, repiBody, moneyMovementsBody].forEach(target => {
       target.addEventListener("click", async event => {
         const button = event.target.closest("button");
         if (!button) return;
-        if (button.dataset.action === "edit-money-movement") await editMoneyMovement(button.dataset.id);
-        if (button.dataset.action === "delete-money-movement") await deleteMoneyMovement(button.dataset.id);
+        if (button.dataset.action === "edit-money-movement") await guarded(editMoneyMovement, button.dataset.id);
+        if (button.dataset.action === "delete-money-movement") await guarded(deleteMoneyMovement, button.dataset.id);
       });
     });
 
@@ -4045,16 +4149,22 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
     async function loadPage() {
       showMessage("");
-      const [, , , loadedProducts] = await Promise.all([
+      const sid = shiftIdFromUrl;
+
+      // 1. kör: minden, ami nem függ egymástól, egyszerre indul.
+      const [, , , loadedProducts, loadedShift, preloadedItems] = await Promise.all([
         loadUsers(),
         loadCategories(),
         loadOpenDebts(),
-        loadProductsCached()
+        loadProductsCached(),
+        sid ? getShiftById(sid) : getOpenShift(),
+        sid ? loadShiftItems(sid) : Promise.resolve(null),
+        sid ? loadMoneyMovements(sid) : Promise.resolve(null)
       ]);
       products = loadedProducts;
 
-      if (shiftIdFromUrl) {
-        currentShift = await getShiftById(shiftIdFromUrl);
+      if (sid) {
+        currentShift = loadedShift;
 
         if (!currentShift) {
           shiftInfo.textContent = "Nem található ez a stand.";
@@ -4065,12 +4175,8 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
         await refreshClosedShiftEditPermission();
         updateHeader();
-
-        const [itemMap] = await Promise.all([
-          loadShiftItems(currentShift.id),
-          loadMoneyMovements(currentShift.id)
-        ]);
-        mergeRows(itemMap);
+        existingItemIds = new Set(preloadedItems.keys());
+        mergeRows(preloadedItems);
         setOriginalRows();
         renderRows();
         await checkProductSyncNeeded();
@@ -4090,7 +4196,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
         return;
       }
 
-      currentShift = await getOpenShift();
+      currentShift = loadedShift;
       closedShiftEditAllowed = false;
 
       if (!currentShift) {
@@ -4100,17 +4206,31 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       updateHeader();
 
+      // 2. kör: a stand tételei és pénzmozgásai (ehhez kell a stand azonosítója).
       const [itemMap] = await Promise.all([
         loadShiftItems(currentShift.id),
         loadMoneyMovements(currentShift.id)
       ]);
+      existingItemIds = new Set(itemMap.keys());
       mergeRows(itemMap);
       setOriginalRows();
       renderRows();
       await checkProductSyncNeeded();
     }
 
-    onAuthStateChanged(auth, async (user) => {
+    function reportLoadError(error) {
+      console.error("Betöltési hiba:", error);
+      const text = friendlyError(error);
+      if (userInfo.textContent.trim() === "Betöltés...") userInfo.textContent = currentUserData?.name || "";
+      shiftInfo.textContent = "Nem sikerült betölteni. Frissítsd az oldalt.";
+      showMessage(text, true);
+    }
+
+    onAuthStateChanged(auth, user => {
+      handleAuthUser(user).catch(reportLoadError);
+    });
+
+    async function handleAuthUser(user) {
       if (!user) {
         window.location.href = "login.html";
         return;
@@ -4145,7 +4265,7 @@ A kapcsolódó pénzmozgás is törlődik, a leadó újraszámolódik.`);
 
       userInfo.textContent = `${currentUserData.name} - ${roleLabel(currentUserData.role)}`;
       await loadPage();
-    });
+    }
 
   </script>
 </body>
